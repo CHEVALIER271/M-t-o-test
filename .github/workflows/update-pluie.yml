@@ -1,49 +1,10 @@
 name: Mise à jour des pluviomètres Météo-France
 
-# Chaque jour, récupère les pluies mesurées par les stations Météo-France proches
-# et enregistre pluie-stations.js dans le dépôt (lu ensuite par la page).
 on:
   schedule:
-    - cron: '30 7 * * *'   # tous les jours à 7 h 30 UTC
-  workflow_dispatch:        # lancement manuel possible depuis l'onglet Actions
+    - cron: '30 7 * * *'
+  workflow_dispatch:
 
-permissions:
-  contents: write
-
-jobs:
-  update:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Récupérer les relevés
-        run: node scripts/update-pluie.js
-      - name: Enregistrer si le fichier a changé
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pluie-stations.js
-          if git diff --cached --quiet; then
-            echo "Aucun changement."
-          else
-            git commit -m "Pluviomètres : mise à jour automatique"
-            git push
-          fi
-
-4. Cliquez sur Commit changes, puis confirmez avec le bouton vert Commit changes.
-
-3. Vérifier le dossier scripts
-
-Il vous manque peut-être aussi scripts/update-pluie.js. Sur la page Code, regardez si le dossier scripts existe. S'il manque, le même geste fonctionne : Add file, Upload files, et glissez le dossier scripts en entier. Sinon, faites Create new file avec le nom scripts/update-pluie.js et collez-y le contenu du fichier de votre dossier.
-
-Dites-moi ce que la liste des fichiers de votre dépôt affiche ensuite. Je vous confirmerai ce qui manque.
-
-✻ Cogitated for 7s · done 21:23
-
-> CHEVALIER271
-  CHEVALIER271
 permissions:
   contents: write
 
