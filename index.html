@@ -1,0 +1,1149 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JP Météo</title>
+<link rel="manifest" href="manifest.json">
+<script src="pluie-stations.js"></script>
+<meta name="theme-color" content="#2e7d32">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root { --bg:#f4f7f2; --card:#ffffff; --text:#1d2b1f; --muted:#5f6f62; --accent:#2e7d32; --line:#dfe6dd; --bad:#c62828; --warn:#e65100; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg:#121712; --card:#1c241d; --text:#e6efe6; --muted:#9bb09d; --accent:#7bc67e; --line:#2c372d; --bad:#ef6c6c; --warn:#ffb74d; }
+}
+:root[data-theme="dark"] { --bg:#121712; --card:#1c241d; --text:#e6efe6; --muted:#9bb09d; --accent:#7bc67e; --line:#2c372d; --bad:#ef6c6c; --warn:#ffb74d; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui, -apple-system, sans-serif; }
+main { max-width: 1000px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.4rem; margin: 8px 0 12px; }
+h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+input, select { flex: 1 1 180px; padding: 10px; font-size: 1rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+select { flex: 0 1 auto; }
+button { padding: 10px 14px; font-size: 1rem; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+button.tab { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+button.tab[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.maintabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.maintabs button { flex: 1; background: transparent; color: var(--accent); border: 1px solid var(--accent); font-weight: 600; }
+.maintabs button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.muted { color: var(--muted); font-size: .9rem; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+th, td { padding: 7px 6px; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+td.avg { font-weight: 700; color: var(--accent); }
+.status { font-size: .88rem; margin: 4px 0; }
+.ok { color: var(--accent); }
+.ko { color: var(--bad); font-weight: 600; }
+.warn { color: var(--warn); font-weight: 600; }
+.moon { font-size: 1.1rem; }
+.src-title { margin: 14px 0 6px; font-size: .98rem; color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>JP Météo, Champion farmer's app</h1>
+
+  <div class="card">
+    <div class="row">
+      <span class="muted" id="place-label" style="flex:1 1 auto">Aucun lieu sélectionné.</span>
+      <button type="button" id="change-place" class="secondary" style="margin-left:auto" hidden>Changer</button>
+    </div>
+    <form id="search-form" class="row" style="margin-top:8px">
+      <input id="place" type="text" placeholder="Ville ou commune (ex. Lyon)" required>
+      <button type="submit">Rechercher</button>
+      <button type="button" id="geo" class="secondary">Ma position</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="row" id="key-saved" hidden>
+      <span class="muted" style="flex:1 1 auto; display:flex; gap:.4em">
+        <span>🔑</span><span>Clé Visual Crossing<br>enregistrée</span>
+      </span>
+      <button type="button" id="change-key" class="secondary" style="margin-left:auto">Changer</button>
+    </div>
+    <div id="key-form">
+      <div class="row">
+        <input id="vc-key" type="password" placeholder="Clé API Visual Crossing (optionnel)">
+        <button type="button" id="save-key" class="secondary">Enregistrer la clé</button>
+      </div>
+      <p class="muted">Visual Crossing est la 6e source. Clé gratuite sur visualcrossing.com. Sans clé, il reste 5 sources.</p>
+    </div>
+  </div>
+
+  <div class="maintabs" role="group" aria-label="Section">
+    <button type="button" class="maintab" data-tab="forecast" aria-pressed="true">Prévisions météo</button>
+    <button type="button" class="maintab" data-tab="agro" aria-pressed="false" id="tab-agro-btn">Alertes agronomiques</button>
+  </div>
+
+  <section id="tab-forecast">
+  <div class="card">
+    <div class="row" role="group" aria-label="Pas de temps">
+      <button type="button" class="tab" data-mode="day" aria-pressed="true">Par jour</button>
+      <button type="button" class="tab" data-mode="hour" aria-pressed="false">Par heure</button>
+      <select id="day-select" aria-label="Jour affiché" hidden></select>
+    </div>
+    <div id="sources-status" class="status muted"></div>
+    <div id="frost-summary" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2 id="avg-title">Moyenne des sources</h2>
+    <div class="table-wrap" id="avg-table"><p class="muted">Choisissez un lieu pour afficher les prévisions.</p></div>
+    <details style="margin-top:8px">
+      <summary class="muted" style="cursor:pointer">Pondération des sources dans la moyenne</summary>
+      <div id="weights-info" class="muted" style="margin-top:6px"></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary style="cursor:pointer"><h2 style="display:inline">Comparatif des sources</h2></summary>
+      <label id="cmp-day-wrap" class="muted" style="display:block;margin-top:10px">Jour affiché
+        <select id="cmp-day"></select>
+      </label>
+      <div id="compare" style="margin-top:10px"></div>
+      <p class="muted" id="hint"></p>
+    </details>
+  </div>
+  </section>
+
+  <section id="tab-agro" hidden>
+  <div class="card">
+    <h2>Alertes agronomiques <small class="muted">(version test)</small></h2>
+    <div id="agro-alerts" class="status"></div>
+
+    <h3 class="src-title">Surveillance par culture</h3>
+    <details>
+      <summary class="muted" style="cursor:pointer">Mes cultures : <span id="crops-summary"></span></summary>
+      <div class="row" id="crops-boxes" style="margin-top:8px"></div>
+    </details>
+    <div id="crops-alerts" class="status" style="margin-top:6px"></div>
+    <details style="margin-top:6px">
+      <summary class="muted" style="cursor:pointer">Périodes surveillées et seuils</summary>
+      <div id="crops-rules" class="muted" style="margin-top:6px"></div>
+    </details>
+    <details style="margin-top:8px">
+      <summary class="muted" style="cursor:pointer">Pluie, évapotranspiration (ETP) et bilan hydrique par jour</summary>
+      <div class="table-wrap" id="agro-table" style="margin-top:8px"></div>
+      <p class="muted" id="agro-hint"></p>
+    </details>
+    <details style="margin-top:8px">
+      <summary class="muted" style="cursor:pointer">Détail par source (valeurs de chaque source)</summary>
+      <div id="agro-sources" style="margin-top:8px"></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Pluie des 30 derniers jours <small class="muted">(version test)</small></h2>
+
+    <h3 class="src-title">Pluviomètres Météo-France (stations proches)</h3>
+    <div id="rain-stations" class="status"></div>
+    <details style="margin-top:6px">
+      <summary class="muted" style="cursor:pointer">Détail par station</summary>
+      <div class="table-wrap" id="rain-stations-detail" style="margin-top:8px"></div>
+    </details>
+
+    <h3 class="src-title">Mon pluviomètre</h3>
+    <div id="rain-mine" class="status"></div>
+    <div class="row" style="margin-top:6px">
+      <input type="date" id="rain-date" aria-label="Date du relevé" style="flex:0 1 160px">
+      <input type="number" id="rain-mm" aria-label="Pluie relevée en millimètres" min="0" step="0.1" placeholder="mm" style="flex:0 1 100px">
+      <button type="button" id="rain-add" class="secondary">Ajouter</button>
+    </div>
+    <p class="muted" id="rain-msg" style="margin:4px 0 0"></p>
+    <details style="margin-top:6px">
+      <summary class="muted" style="cursor:pointer">Mes relevés</summary>
+      <div class="table-wrap" id="rain-mine-list" style="margin-top:8px"></div>
+    </details>
+
+    <details style="margin-top:12px">
+      <summary class="muted" style="cursor:pointer">Estimation par modèles météo (indicatif seulement)</summary>
+      <div id="past-rain" class="status" style="margin-top:6px"></div>
+      <div class="table-wrap" id="past-rain-models" style="margin-top:8px"></div>
+      <div class="table-wrap" id="past-rain-days" style="margin-top:8px"></div>
+      <p class="muted" id="past-rain-hint"></p>
+    </details>
+  </div>
+
+  </section>
+</main>
+
+<script>
+const LOC_KEY = 'meteo.location';
+const VC_KEY = 'meteo.visualcrossingKey';
+const DAYS = 7;
+
+const storage = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* stockage indisponible */ } }
+};
+
+async function getJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+const pad = n => String(n).padStart(2, '0');
+const localDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+/* ---------- Agrégats ---------- */
+const nums = (arr) => arr.filter(v => v != null && !Number.isNaN(v));
+const mean = arr => { const v = nums(arr); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+const sum = arr => { const v = nums(arr); return v.length ? v.reduce((a, b) => a + b, 0) : null; };
+const max = arr => { const v = nums(arr); return v.length ? Math.max(...v) : null; };
+const min = arr => { const v = nums(arr); return v.length ? Math.min(...v) : null; };
+
+// entrées horaires {temp, hum, wind, gust, precip} -> valeurs agrégées
+function aggregate(entries) {
+  if (!entries.length) return null;
+  const c = k => entries.map(e => e[k]);
+  return { tmin: min(c('temp')), tmax: max(c('temp')), temp: mean(c('temp')),
+           wind: mean(c('wind')), gust: max(c('gust')), precip: sum(c('precip')), hum: mean(c('hum')) };
+}
+
+// Map "AAAA-MM-JJTHH" -> entrée ; renvoie Map jour -> entrées
+function groupByDay(hourly) {
+  const days = new Map();
+  for (const [key, e] of hourly) {
+    const d = key.slice(0, 10);
+    if (!days.has(d)) days.set(d, []);
+    days.get(d).push(e);
+  }
+  return days;
+}
+
+/* ---------- Sources : { daily: Map jour -> valeurs, hourly: Map clé horaire -> entrée } ---------- */
+async function fetchOpenMeteo(lat, lon, model) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    (model ? `&models=${model}` : '') +
+    `&daily=temperature_2m_min,temperature_2m_max,precipitation_sum,wind_gusts_10m_max,et0_fao_evapotranspiration` +
+    `&hourly=temperature_2m,precipitation,relative_humidity_2m,wind_speed_10m,wind_gusts_10m` +
+    `&wind_speed_unit=kmh&timezone=auto&forecast_days=${DAYS}`;
+  const data = await getJson(url);
+  const h = data.hourly;
+  const hourly = new Map();
+  h.time.forEach((t, i) => {
+    if (h.temperature_2m[i] == null) return; // modèle sans données à cette échéance
+    hourly.set(t.slice(0, 13), {
+      temp: h.temperature_2m[i], precip: h.precipitation[i], hum: h.relative_humidity_2m[i],
+      wind: h.wind_speed_10m[i], gust: h.wind_gusts_10m[i]
+    });
+  });
+  const byDay = groupByDay(hourly);
+  const daily = new Map();
+  data.daily.time.forEach((date, i) => {
+    if (data.daily.temperature_2m_min[i] == null) return;
+    const a =aggregate(byDay.get(date) ?? []) ?? {};
+    daily.set(date, {
+      tmin: data.daily.temperature_2m_min[i], tmax: data.daily.temperature_2m_max[i],
+      precip: data.daily.precipitation_sum[i], gust: data.daily.wind_gusts_10m_max[i] ?? a.gust ?? null,
+      wind: a.wind ?? null, hum: a.hum ?? null,
+      et0: data.daily.et0_fao_evapotranspiration?.[i] ?? null
+    });
+  });
+  return { daily, hourly };
+}
+
+async function fetchMetNo(lat, lon) {
+  // Pas horaires les ~2,5 premiers jours, puis pas de 6 h
+  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`;
+  const data = await getJson(url);
+  const hourly = new Map();
+  for (const step of data.properties.timeseries) {
+    const d = new Date(step.time);
+    const key = `${localDate(d)}T${pad(d.getHours())}`;
+    const det = step.data.instant.details;
+    const period = step.data.next_1_hours ?? step.data.next_6_hours;
+    hourly.set(key, {
+      temp: det.air_temperature,
+      hum: det.relative_humidity ?? null,
+      wind: det.wind_speed != null ? det.wind_speed * 3.6 : null,
+      gust: det.wind_speed_of_gust != null ? det.wind_speed_of_gust * 3.6 : null,
+      precip: period ? period.details.precipitation_amount : null
+    });
+  }
+  const daily = new Map();
+  for (const [date, entries] of groupByDay(hourly)) daily.set(date, aggregate(entries));
+  return { daily, hourly };
+}
+
+async function fetchVisualCrossing(lat, lon, key) {
+  const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/` +
+    `${lat},${lon}?unitGroup=metric&include=days,hours&contentType=json&key=${encodeURIComponent(key)}`;
+  const data = await getJson(url);
+  const daily = new Map();
+  const hourly = new Map();
+  for (const d of data.days) {
+    daily.set(d.datetime, { tmin: d.tempmin, tmax: d.tempmax, precip: d.precip,
+                            wind: d.windspeed, gust: d.windgust, hum: d.humidity });
+    for (const h of d.hours ?? []) {
+      hourly.set(`${d.datetime}T${h.datetime.slice(0, 2)}`, {
+        temp: h.temp, precip: h.precip, hum: h.humidity, wind: h.windspeed, gust: h.windgust
+      });
+    }
+  }
+  return { daily, hourly };
+}
+
+const SOURCES = [
+  { name: 'Open-Meteo', fetch: (lat, lon) => fetchOpenMeteo(lat, lon) },
+  { name: 'Météo-France (AROME/ARPEGE)', fetch: (lat, lon) => fetchOpenMeteo(lat, lon, 'meteofrance_seamless') },
+  { name: 'GFS (NOAA, États-Unis)', fetch: (lat, lon) => fetchOpenMeteo(lat, lon, 'gfs_seamless') },
+  { name: 'ECMWF (Europe)', fetch: (lat, lon) => fetchOpenMeteo(lat, lon, 'ecmwf_ifs025') },
+  { name: 'MET Norway', fetch: (lat, lon) => fetchMetNo(lat, lon) },
+  { name: 'Visual Crossing', fetch: (lat, lon, key) => fetchVisualCrossing(lat, lon, key), needsKey: true }
+];
+
+async function geocode(name) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=fr&format=json`;
+  const data = await getJson(url);
+  const r = data.results?.[0];
+  if (!r) throw new Error('Lieu introuvable');
+  return { lat: r.latitude, lon: r.longitude, label: `${r.name}${r.admin1 ? ', ' + r.admin1 : ''}` };
+}
+
+/* ---------- Lune ---------- */
+const SYNODIC = 29.530588853;
+const NEW_MOON_REF = Date.UTC(2000, 0, 6, 18, 14); // nouvelle lune de référence
+const MOON_PHASES = [
+  ['🌑', 'Nouvelle lune'], ['🌒', 'Premier croissant'], ['🌓', 'Premier quartier'], ['🌔', 'Gibbeuse croissante'],
+  ['🌕', 'Pleine lune'], ['🌖', 'Gibbeuse décroissante'], ['🌗', 'Dernier quartier'], ['🌘', 'Dernier croissant']
+];
+function moonPhase(dayKey) {
+  const t = new Date(`${dayKey}T12:00:00`).getTime();
+  const age = (((t - NEW_MOON_REF) / 86400000) % SYNODIC + SYNODIC) % SYNODIC;
+  const idx = Math.round(age / SYNODIC * 8) % 8;
+  const illum = Math.round((1 - Math.cos(2 * Math.PI * age / SYNODIC)) / 2 * 100);
+  return { icon: MOON_PHASES[idx][0], name: MOON_PHASES[idx][1], illum };
+}
+
+/* ---------- Affichage ---------- */
+const f = (n, digits = 1) => (n == null || Number.isNaN(n) ? '–' : n.toFixed(digits));
+const withUnit = (n, unit, digits = 1) => (n == null || Number.isNaN(n) ? '–' : `${n.toFixed(digits)} ${unit}`);
+
+function frostCell(tmin, anyMin) {
+  if (tmin == null) return '–';
+  if (tmin <= 0) return '<span class="ko">❄ Gel</span>';
+  if (tmin <= 2) return '<span class="warn">⚠ Risque de gel</span>';
+  if (anyMin != null && anyMin <= 2) return '<span class="warn">Possible (1 source)</span>';
+  return '<span class="muted">Aucun</span>';
+}
+
+function dayLabel(key) {
+  return new Date(`${key}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function nextDayKeys() {
+  return Array.from({ length: DAYS }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return localDate(d);
+  });
+}
+
+/* ---------- Pondération des sources ----------
+   Poids calculés par un test rétrospectif à Genneteil (prévisions passées d'Open-Meteo comparées à l'analyse ERA5,
+   sept.-nov. 2026 et sept. 2025-mars 2026), puis atténués de 50 % vers l'égalité. Validés sur des données non vues :
+   ils améliorent légèrement T min, pluie et vent. Ils n'aident pas pour T max et rafales (moyenne simple), et
+   humidité / ETP n'ont pas été testées (moyenne simple). Les sources absentes du test (MET Norway, Visual Crossing)
+   reçoivent le poids moyen des autres. Échéance : jour 0-1 = court, 2-3 = moyen, 4 et + = long. */
+const WEIGHTS = {
+  tmin: {
+    court: { 'Open-Meteo': 0.276, 'Météo-France (AROME/ARPEGE)': 0.210, 'GFS (NOAA, États-Unis)': 0.214, 'ECMWF (Europe)': 0.300 },
+    moyen: { 'Open-Meteo': 0.265, 'Météo-France (AROME/ARPEGE)': 0.226, 'GFS (NOAA, États-Unis)': 0.227, 'ECMWF (Europe)': 0.282 },
+    long: { 'Open-Meteo': 0.329, 'GFS (NOAA, États-Unis)': 0.317, 'ECMWF (Europe)': 0.354 }
+  },
+  precip: {
+    court: { 'Open-Meteo': 0.239, 'Météo-France (AROME/ARPEGE)': 0.244, 'GFS (NOAA, États-Unis)': 0.255, 'ECMWF (Europe)': 0.262 },
+    moyen: { 'Open-Meteo': 0.248, 'Météo-France (AROME/ARPEGE)': 0.244, 'GFS (NOAA, États-Unis)': 0.245, 'ECMWF (Europe)': 0.263 },
+    long: { 'Open-Meteo': 0.323, 'GFS (NOAA, États-Unis)': 0.370, 'ECMWF (Europe)': 0.307 }
+  },
+  wind: {
+    court: { 'Open-Meteo': 0.174, 'Météo-France (AROME/ARPEGE)': 0.264, 'GFS (NOAA, États-Unis)': 0.186, 'ECMWF (Europe)': 0.376 },
+    moyen: { 'Open-Meteo': 0.214, 'Météo-France (AROME/ARPEGE)': 0.254, 'GFS (NOAA, États-Unis)': 0.200, 'ECMWF (Europe)': 0.332 },
+    long: { 'Open-Meteo': 0.327, 'GFS (NOAA, États-Unis)': 0.300, 'ECMWF (Europe)': 0.374 }
+  }
+};
+const bucketOf = i => (i <= 1 ? 'court' : i <= 3 ? 'moyen' : 'long');
+const dayIdx = key => Math.max(0, nextDayKeys().indexOf(key));
+
+function sourceWeight(name, crit, idx) {
+  const t = WEIGHTS[crit]?.[bucketOf(idx)];
+  if (!t) return 1; // critère non pondéré : moyenne simple
+  if (name in t) return t[name];
+  const v = Object.values(t);
+  return v.reduce((a, b) => a + b, 0) / v.length; // source non testée : poids moyen
+}
+
+function wmean(list, k, idx) {
+  let num = 0, den = 0;
+  for (const v of list) {
+    if (v[k] == null || Number.isNaN(v[k])) continue;
+    const w = sourceWeight(v._src, k, idx);
+    num += w * v[k]; den += w;
+  }
+  return den ? num / den : null;
+}
+
+// list : valeurs des sources avec _src (nom de la source) ; idx : n° du jour (0 = aujourd'hui)
+function averageValues(list, idx = 0) {
+  const out = {};
+  for (const k of ['tmin', 'tmax', 'temp', 'wind', 'gust', 'precip', 'hum', 'et0']) out[k] = wmean(list, k, idx);
+  out.anyMin = min(list.map(v => v.tmin ?? v.temp));
+  out.n = list.length;
+  return out;
+}
+
+function renderWeightsInfo() {
+  const names = ['Open-Meteo', 'Météo-France (AROME/ARPEGE)', 'GFS (NOAA, États-Unis)', 'ECMWF (Europe)'];
+  const crits = [['tmin', 'T min'], ['precip', 'Pluie'], ['wind', 'Vent moyen']];
+  const buckets = [['court', 'Jours 0-1'], ['moyen', 'Jours 2-3'], ['long', 'Jours 4 et +']];
+  const rows = [];
+  for (const [c, cl] of crits) for (const [b, bl] of buckets) {
+    const t = WEIGHTS[c][b];
+    rows.push(`<tr><td>${cl}</td><td>${bl}</td>` + names.map(n => `<td>${n in t ? Math.round(t[n] * 100) + ' %' : '–'}</td>`).join('') + '</tr>');
+  }
+  document.getElementById('weights-info').innerHTML =
+    '<p>La moyenne n\'est pas toujours « une voix par source ». Un test rétrospectif à Genneteil (sept. 2025 à nov. 2026) compare les prévisions passées à ce qui s\'est réellement passé. ' +
+    'Les poids ci-dessous sont déduits de l\'erreur de chaque modèle, atténués de moitié vers l\'égalité, et validés sur des données non vues. ' +
+    'Ils ne sont appliqués que pour T min, pluie et vent, où ils améliorent légèrement la moyenne. T max, rafales, humidité et ETP : moyenne simple. ' +
+    'MET Norway et Visual Crossing n\'ont pas pu être testés : poids moyen.</p>' +
+    '<div class="table-wrap">' + tableHtml(['Critère', 'Échéance', 'Open-Meteo', 'Météo-France', 'GFS', 'ECMWF'], rows) + '</div>' +
+    '<p>« – » : modèle sans donnée à cette échéance. Gain mesuré : faible (quelques centièmes d\'erreur), la pondération est un affinage, pas une transformation.</p>';
+}
+
+// Valeurs journalières de toutes les sources pour un jour, marquées par source
+const tagSrc = (s, v) => (v ? { ...v, _src: s.name } : null);
+const dayValues = k => state.ok.map(s => tagSrc(s, s.data.daily.get(k))).filter(Boolean);
+
+// Colonnes selon le mode
+const DAY_HEAD = ['Jour', 'Lune', 'T min', 'T max', 'Vent moy.', 'Rafales', 'Pluie', 'Humidité', 'Gel'];
+const HOUR_HEAD = ['Heure', 'Temp.', 'Vent moy.', 'Rafales', 'Pluie', 'Humidité', 'Gel'];
+
+function dayRow(key, v, opts) {
+  const m = moonPhase(key);
+  const cls = opts.avg ? ' class="avg"' : '';
+  const srcCol = opts.avg ? `<td class="${v && v.n < 3 ? 'ko' : 'muted'}">${v ? v.n : 0}/${opts.total}</td>` : '';
+  return `<tr>
+    <td>${dayLabel(key)}</td>
+    <td><span class="moon" title="${m.name}, ${m.illum} %">${m.icon}</span></td>
+    <td${cls}>${withUnit(v?.tmin, '°C')}</td>
+    <td${cls}>${withUnit(v?.tmax, '°C')}</td>
+    <td${cls}>${withUnit(v?.wind, 'km/h', 0)}</td>
+    <td${cls}>${withUnit(v?.gust, 'km/h', 0)}</td>
+    <td${cls}>${withUnit(v?.precip, 'mm')}</td>
+    <td${cls}>${withUnit(v?.hum, '%', 0)}</td>
+    <td>${frostCell(v?.tmin, v?.anyMin)}</td>${srcCol}
+  </tr>`;
+}
+
+function hourRow(label, v, opts) {
+  const cls = opts.avg ? ' class="avg"' : '';
+  const srcCol = opts.avg ? `<td class="${v && v.n < 3 ? 'ko' : 'muted'}">${v ? v.n : 0}/${opts.total}</td>` : '';
+  return `<tr>
+    <td>${label}</td>
+    <td${cls}>${withUnit(v?.temp, '°C')}</td>
+    <td${cls}>${withUnit(v?.wind, 'km/h', 0)}</td>
+    <td${cls}>${withUnit(v?.gust, 'km/h', 0)}</td>
+    <td${cls}>${withUnit(v?.precip, 'mm')}</td>
+    <td${cls}>${withUnit(v?.hum, '%', 0)}</td>
+    <td>${frostCell(v?.temp, v?.anyMin)}</td>${srcCol}
+  </tr>`;
+}
+
+// Met la précision entre parenthèses sur une 2e ligne : "Météo-France (AROME/ARPEGE)"
+function srcLabel(name) {
+  const m = name.match(/^(.*?)\s*(\(.*\))$/);
+  return m ? `${m[1]}<br><small class="muted">${m[2]}</small>` : name;
+}
+
+const tableHtml =(head, rows) =>
+  `<table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
+
+// Valeurs d'une source pour un créneau horaire (pas = 1 ou 3 h)
+function slotValues(src, dayKey, hour, step) {
+  const entries = [];
+  for (let h = hour; h < hour + step; h++) {
+    const e = src.hourly.get(`${dayKey}T${pad(h)}`);
+    if (e) entries.push(e);
+  }
+  return aggregate(entries);
+}
+
+const state = { loc: null, ok: [], all: [], mode: 'day', step: 3, day: null, cmpDay: 'all' };
+
+function render() {
+  const avgEl = document.getElementById('avg-table');
+  const cmpEl = document.getElementById('compare');
+  const daySel = document.getElementById('day-select');
+  const hint = document.getElementById('hint');
+  if (!state.loc) return;
+
+  const keys = nextDayKeys();
+  const total = state.ok.length;
+  daySel.hidden = state.mode === 'day';
+  document.getElementById('cmp-day-wrap').hidden = state.mode !== 'day';
+  const hourBtn = document.querySelector('button.tab[data-mode="hour"]');
+  hourBtn.textContent = state.mode === 'day' ? 'Par heure'
+    : state.step === 3 ? 'Toutes les 3 h ⇄' : 'Toutes les heures ⇄';
+
+  if (!total) {
+    avgEl.innerHTML = '<p class="ko">Aucune source disponible.</p>';
+    cmpEl.innerHTML = '';
+    return;
+  }
+
+  if (state.mode === 'day') {
+    document.getElementById('avg-title').textContent = 'Moyenne des sources, jour par jour';
+    const head = [...DAY_HEAD, 'Sources'];
+    avgEl.innerHTML = tableHtml(head, keys.map(k => {
+      const vals = dayValues(k);
+      return dayRow(k, vals.length ? averageValues(vals, dayIdx(k)) : null, { avg: true, total });
+    }));
+    // Comparatif jour par jour : un bloc par jour, une ligne par source
+    const cmpHead = ['Source', 'T min', 'T max', 'Vent moy.', 'Rafales', 'Pluie', 'Humidité', 'Gel'];
+    const cmpRows = [];
+    const cmpSel = document.getElementById('cmp-day');
+    if (state.cmpDay !== 'all' && !keys.includes(state.cmpDay)) state.cmpDay = 'all';
+    cmpSel.innerHTML = '<option value="all">Tous les jours</option>' +
+      keys.map(k => `<option value="${k}">${dayLabel(k)}</option>`).join('');
+    cmpSel.value = state.cmpDay;
+    for (const k of keys) {
+      if (state.cmpDay !== 'all' && k !== state.cmpDay) continue;
+      const m = moonPhase(k);
+      cmpRows.push(`<tr><th colspan="8" style="text-align:left;background:var(--bg)">${dayLabel(k)} <span class="moon" title="${m.name}, ${m.illum} %">${m.icon}</span></th></tr>`);
+      for (const s of state.all) {
+        const v = s.data?.daily.get(k);
+        cmpRows.push(`<tr>
+          <td>${srcLabel(s.name)}</td>
+          <td>${withUnit(v?.tmin, '°C')}</td>
+          <td>${withUnit(v?.tmax, '°C')}</td>
+          <td>${withUnit(v?.wind, 'km/h', 0)}</td>
+          <td>${withUnit(v?.gust, 'km/h', 0)}</td>
+          <td>${withUnit(v?.precip, 'mm')}</td>
+          <td>${withUnit(v?.hum, '%', 0)}</td>
+          <td>${v ? frostCell(v.tmin, v.tmin) : '–'}</td>
+        </tr>`);
+      }
+    }
+    const missing = state.all.filter(s => !s.data).map(s => `${s.name} : ${s.error}`);
+    cmpEl.innerHTML = `<div class="table-wrap">${tableHtml(cmpHead, cmpRows)}</div>` +
+      (missing.length ? `<p class="muted">${missing.join(' · ')}</p>` : '');
+    hint.textContent = 'Rafales = rafale maximale du jour. Vent et humidité = moyennes du jour. Gel déduit de la T min (≤ 0 °C gel, ≤ 2 °C risque).';
+    return;
+  }
+
+  // Modes horaires
+  const step = state.step;
+  const dayKey = state.day && keys.includes(state.day) ? state.day : keys[0];
+  const hours = Array.from({ length: 24 / step }, (_, i) => i * step);
+  const labelOf = h => step === 1 ? `${pad(h)} h` : `${pad(h)}–${pad((h + 3) % 24)} h`;
+  document.getElementById('avg-title').textContent =
+    `Moyenne des sources, ${dayLabel(dayKey)} (${step === 1 ? 'toutes les heures' : 'toutes les 3 heures'})`;
+  const head = [...HOUR_HEAD, 'Sources'];
+  avgEl.innerHTML = tableHtml(head, hours.map(h => {
+    const vals = state.ok.map(s => tagSrc(s, slotValues(s.data, dayKey, h, step))).filter(Boolean);
+    return hourRow(labelOf(h), vals.length ? averageValues(vals, dayIdx(dayKey)) : null, { avg: true, total });
+  }));
+  cmpEl.innerHTML = state.all.map(s => {
+    const body = s.data
+      ? tableHtml(HOUR_HEAD, hours.map(h => {
+          const v = slotValues(s.data, dayKey, h, step);
+          return hourRow(labelOf(h), v ? { ...v, anyMin: v.temp } : null, {});
+        }))
+      : `<p class="muted">${s.error}</p>`;
+    return `<h3 class="src-title">${srcLabel(s.name)}</h3><div class="table-wrap">${body}</div>`;
+  }).join('');
+  hint.textContent = 'Pluie = cumul sur le créneau. MET Norway ne donne des pas horaires que sur les ~2,5 premiers jours, ensuite des pas de 6 h : les créneaux sans donnée sont vides. Les sources horaires fiables vont jusqu\'à ~3 jours ; au-delà, regarder la vue par jour.';
+}
+
+function renderFrostSummary() {
+  const el = document.getElementById('frost-summary');
+  if (!state.ok.length) { el.innerHTML = ''; return; }
+  const risky = [];
+  for (const k of nextDayKeys()) {
+    const vals = dayValues(k);
+    if (!vals.length) continue;
+    const t = averageValues(vals, dayIdx(k)).tmin;
+    if (t != null && t <= 2) risky.push(`${dayLabel(k)} (${t.toFixed(1)} °C)`);
+  }
+  el.innerHTML = risky.length
+    ? `<span class="warn">❄ Risque de gel :</span> ${risky.join(', ')}`
+    : '<span class="ok">Aucun risque de gel moyen prévu sur 7 jours.</span>';
+}
+
+/* ---------- Alertes agronomiques ----------
+   Seuils tirés du guide Climadiag Agriculture (Météo-France / Solagro, 2024), appliqués ici
+   aux prévisions à 7 jours. À valider et ajuster avec l'agriculteur. */
+const THRESHOLDS = {
+  hot: 25,        // jour chaud : Tmax >= 25 °C
+  veryHot: 35,    // jour très chaud : Tmax >= 35 °C
+  frost: 0,       // gel : Tmin <= 0 °C
+  hardFrost: -4,  // gel fort : Tmin <= -4 °C
+  intenseRain: 25,// pluie intense : > 25 mm/jour
+  wind: 19,       // vent soutenu : vent moyen > 19 km/h
+  etpHigh: 8      // ETP forte : > 8 mm/jour
+};
+
+const has = x => x != null && !Number.isNaN(x);
+
+const ALERT_GROUPS = [
+  { icon: '🔥', label: `Très chaud (≥ ${THRESHOLDS.veryHot} °C)`, cls: 'ko',
+    test: d => has(d.tmax) && d.tmax >= THRESHOLDS.veryHot, show: d => `${d.tmax.toFixed(0)} °C` },
+  { icon: '☀️', label: `Chaud (≥ ${THRESHOLDS.hot} °C)`, cls: 'warn',
+    test: d => has(d.tmax) && d.tmax >= THRESHOLDS.hot && d.tmax < THRESHOLDS.veryHot, show: d => `${d.tmax.toFixed(0)} °C` },
+  { icon: '🥶', label: `Gel fort (≤ ${THRESHOLDS.hardFrost} °C)`, cls: 'ko',
+    test: d => has(d.tmin) && d.tmin <= THRESHOLDS.hardFrost, show: d => `${d.tmin.toFixed(1)} °C` },
+  { icon: '❄️', label: `Gel (≤ ${THRESHOLDS.frost} °C)`, cls: 'warn',
+    test: d => has(d.tmin) && d.tmin <= THRESHOLDS.frost && d.tmin > THRESHOLDS.hardFrost, show: d => `${d.tmin.toFixed(1)} °C` },
+  { icon: '🌧️', label: `Pluie intense (> ${THRESHOLDS.intenseRain} mm)`, cls: 'ko',
+    test: d => has(d.precip) && d.precip > THRESHOLDS.intenseRain, show: d => `${d.precip.toFixed(0)} mm` },
+  { icon: '💨', label: `Vent soutenu (moy. > ${THRESHOLDS.wind} km/h)`, cls: 'warn',
+    test: d => has(d.wind) && d.wind > THRESHOLDS.wind, show: d => `${d.wind.toFixed(0)} km/h` },
+  { icon: '🏜️', label: `ETP forte (> ${THRESHOLDS.etpHigh} mm)`, cls: 'warn',
+    test: d => has(d.et0) && d.et0 > THRESHOLDS.etpHigh, show: d => `${d.et0.toFixed(1)} mm` }
+];
+
+function renderAgro() {
+  const alertsEl = document.getElementById('agro-alerts');
+  const tableEl = document.getElementById('agro-table');
+  const hintEl = document.getElementById('agro-hint');
+  const srcEl = document.getElementById('agro-sources');
+  if (!state.ok.length) { state.agroLines = 0; alertsEl.innerHTML = ''; tableEl.innerHTML = ''; hintEl.textContent = ''; srcEl.innerHTML = ''; return; }
+
+  // Moyenne des sources, jour par jour
+  const days = [];
+  for (const k of nextDayKeys()) {
+    const vals = dayValues(k);
+    if (vals.length) days.push({ key: k, ...averageValues(vals, dayIdx(k)) });
+  }
+
+  const lines = ALERT_GROUPS.map(g => {
+    const hit = days.filter(g.test);
+    return hit.length
+      ? `<div><span class="${g.cls}">${g.icon} ${g.label} :</span> ${hit.map(d => `${dayLabel(d.key)} (${g.show(d)})`).join(', ')}</div>`
+      : '';
+  }).filter(Boolean);
+  state.agroLines = lines.length;
+  alertsEl.innerHTML = lines.length
+    ? lines.join('')
+    : '<span class="ok">Aucune alerte sur les 7 prochains jours.</span>';
+
+  // Pluie, ETP, bilan hydrique (pluie - ETP)
+  let cumP = 0, cumE = 0, nb = 0;
+  const rows = days.map(d => {
+    const bilan = has(d.precip) && has(d.et0) ? d.precip - d.et0 : null;
+    if (bilan != null) { cumP += d.precip; cumE += d.et0; nb++; }
+    return `<tr><td>${dayLabel(d.key)}</td><td>${withUnit(d.precip, 'mm')}</td><td>${withUnit(d.et0, 'mm')}</td>` +
+      `<td class="${bilan != null && bilan < 0 ? 'warn' : ''}">${bilan == null ? '–' : (bilan > 0 ? '+' : '') + bilan.toFixed(1) + ' mm'}</td></tr>`;
+  });
+  if (nb) {
+    const total = cumP - cumE;
+    rows.push(`<tr style="font-weight:700"><td>Cumul (${nb} j)</td><td>${cumP.toFixed(1)} mm</td><td>${cumE.toFixed(1)} mm</td>` +
+      `<td class="${total < 0 ? 'warn' : 'ok'}">${total > 0 ? '+' : ''}${total.toFixed(1)} mm</td></tr>`);
+  }
+  tableEl.innerHTML = tableHtml(['Jour', 'Pluie', 'ETP', 'Bilan (pluie − ETP)'], rows);
+
+  // Détail par source : mêmes seuils que les alertes, appliqués à chaque source séparément
+  const cell = (v, unit, digits, level) =>
+    `<td${level ? ` class="${level}"` : ''}>${withUnit(v, unit, digits)}</td>`;
+  const levelT = (v, hard, soft, up) => !has(v) ? '' :
+    (up ? (v >= hard ? 'ko' : v >= soft ? 'warn' : '') : (v <= hard ? 'ko' : v <= soft ? 'warn' : ''));
+  srcEl.innerHTML = state.all.map(s => {
+    if (!s.data) return `<h3 class="src-title">${srcLabel(s.name)}</h3><p class="muted">${s.error}</p>`;
+    const srcRows = nextDayKeys().map(k => {
+      const v = s.data.daily.get(k);
+      if (!v) return `<tr><td>${dayLabel(k)}</td><td colspan="5" class="muted">–</td></tr>`;
+      return `<tr><td>${dayLabel(k)}</td>` +
+        cell(v.tmin, '°C', 1, levelT(v.tmin, THRESHOLDS.hardFrost, THRESHOLDS.frost, false)) +
+        cell(v.tmax, '°C', 1, levelT(v.tmax, THRESHOLDS.veryHot, THRESHOLDS.hot, true)) +
+        cell(v.precip, 'mm', 1, has(v.precip) && v.precip > THRESHOLDS.intenseRain ? 'ko' : '') +
+        cell(v.wind, 'km/h', 0, has(v.wind) && v.wind > THRESHOLDS.wind ? 'warn' : '') +
+        cell(v.et0, 'mm', 1, has(v.et0) && v.et0 > THRESHOLDS.etpHigh ? 'warn' : '') + '</tr>';
+    });
+    return `<h3 class="src-title">${srcLabel(s.name)}</h3><div class="table-wrap">` +
+      tableHtml(['Jour', 'T min', 'T max', 'Pluie', 'Vent moy.', 'ETP'], srcRows) + '</div>';
+  }).join('') + '<p class="muted">Orange : seuil d\'alerte atteint. Rouge : seuil fort (très chaud, gel fort, pluie intense).</p>';
+  hintEl.textContent = 'Moyenne des sources. ETP = évapotranspiration de référence (Open-Meteo, FAO) ; Météo-France ne la fournit que sur ~4 jours. ' +
+    'Un bilan négatif signifie que le sol perd plus d\'eau qu\'il n\'en reçoit. Seuils inspirés de Climadiag Agriculture, à valider avec l\'agriculteur.';
+}
+
+/* ---------- Onglets : Prévisions météo / Alertes agronomiques ---------- */
+const TAB_KEY = 'meteo.tab';
+function updateAgroBadge() {
+  const n = (state.agroLines || 0) + (state.cropAlerts || 0);
+  document.getElementById('tab-agro-btn').textContent = n ? `Alertes agronomiques (${n})` : 'Alertes agronomiques';
+}
+function showTab(name) {
+  const tab = name === 'agro' ? 'agro' : 'forecast';
+  document.getElementById('tab-forecast').hidden = tab !== 'forecast';
+  document.getElementById('tab-agro').hidden = tab !== 'agro';
+  document.querySelectorAll('button.maintab').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
+  storage.set(TAB_KEY, tab);
+}
+
+/* ---------- Surveillance par culture ----------
+   Règles tirées du guide Climadiag Agriculture (Météo-France / Solagro, 2024), tableaux « agro-climatiques »
+   Céréales, Maïs et Tournesol. Le guide les utilise pour des bilans climatiques annuels ; ici elles sont
+   appliquées aux prévisions à 7 jours, uniquement pendant leur période de validité.
+   Le guide ne distingue pas blé, triticale, seigle, orge et avoine : ils partagent les règles « Céréales » (hypothèse à valider).
+   Maïs tardif = règles du maïs. Vesse : aucun indicateur dans le guide, règles du pois protéagineux par approximation. */
+const CROPS_KEY = 'meteo.crops';
+const CROPS = [
+  { id: 'ble', label: 'Blé', group: 'cereales' },
+  { id: 'triticale', label: 'Triticale', group: 'cereales' },
+  { id: 'seigle', label: 'Seigle', group: 'cereales' },
+  { id: 'orge', label: 'Orge', group: 'cereales' },
+  { id: 'avoine', label: 'Avoine', group: 'cereales' },
+  { id: 'mais', label: 'Maïs', group: 'mais' },
+  { id: 'mais_tardif', label: 'Maïs tardif', group: 'mais' },
+  { id: 'sorgho', label: 'Sorgho', group: 'sorgho' },
+  { id: 'tournesol', label: 'Tournesol', group: 'tournesol' },
+  { id: 'vesse', label: 'Vesse', group: 'vesse' }
+];
+const GROUP_LABEL = { cereales: 'Céréales', mais: 'Maïs', sorgho: 'Sorgho', tournesol: 'Tournesol', vesse: 'règles du pois protéagineux, par approximation' };
+
+// from / to = [mois, jour] ; kind 'day' = test jour par jour, 'info' = valeur sur la période (pas de seuil d'alerte)
+const CROP_RULES = [
+  // Céréales
+  { group: 'cereales', kind: 'day', cls: 'ko', from: [2, 20], to: [4, 10], label: 'Gel début montaison (Tmin ≤ -4 °C)',
+    test: d => has(d.tmin) && d.tmin <= -4, show: d => `${d.tmin.toFixed(1)} °C` },
+  { group: 'cereales', kind: 'day', cls: 'warn', from: [4, 1], to: [5, 31], label: 'Gel tardif en montaison (Tmin ≤ 0 °C)',
+    test: d => has(d.tmin) && d.tmin <= 0, show: d => `${d.tmin.toFixed(1)} °C` },
+  { group: 'cereales', kind: 'day', cls: 'warn', from: [4, 15], to: [7, 15], label: 'Chaleur épiaison-floraison / échaudage (Tmax > 25 °C)',
+    test: d => has(d.tmax) && d.tmax > 25, show: d => `${d.tmax.toFixed(0)} °C` },
+  { group: 'cereales', kind: 'info', from: [11, 1], to: [11, 30], label: 'Excès d\'eau après semis : pluie cumulée (le guide ne fixe pas de seuil)',
+    info: days => `${sum(days.map(d => d.precip)).toFixed(1)} mm sur ${days.length} j` },
+  { group: 'cereales', kind: 'info', from: [4, 1], to: [6, 30], label: 'Déficit hydrique montaison-remplissage : bilan pluie − ETP',
+    info: days => balanceText(days) },
+  { group: 'cereales', kind: 'info', from: [7, 1], to: [7, 31], label: 'Récolte : jours consécutifs sans pluie (&lt; 1 mm)',
+    info: days => dryRunText(days) },
+  // Maïs
+  { group: 'mais', kind: 'day', cls: 'ko', from: [4, 1], to: [4, 30], label: 'Pluie intense au semis (> 25 mm)',
+    test: d => has(d.precip) && d.precip > 25, show: d => `${d.precip.toFixed(0)} mm` },
+  { group: 'mais', kind: 'day', cls: 'warn', from: [4, 1], to: [6, 30], label: 'Températures très basses, levée freinée (Tmax &lt; 10 °C)',
+    test: d => has(d.tmax) && d.tmax < 10, show: d => `${d.tmax.toFixed(0)} °C` },
+  { group: 'mais', kind: 'day', cls: 'ko', from: [6, 1], to: [9, 30], label: 'Stress thermique, risque d\'échaudage (Tmax > 32 °C)',
+    test: d => has(d.tmax) && d.tmax > 32, show: d => `${d.tmax.toFixed(0)} °C` },
+  { group: 'mais', kind: 'info', from: [5, 1], to: [8, 31], label: 'Déficit hydrique mai-août : bilan pluie − ETP',
+    info: days => balanceText(days) },
+  { group: 'mais', kind: 'info', from: [7, 1], to: [8, 31], label: 'Jours consécutifs sans pluie (&lt; 1 mm)',
+    info: days => dryRunText(days) },
+  { group: 'mais', kind: 'day', cls: 'warn', from: [9, 1], to: [12, 31], label: 'Gel significatif d\'automne (Tmin &lt; -2 °C)',
+    test: d => has(d.tmin) && d.tmin < -2, show: d => `${d.tmin.toFixed(1)} °C` },
+  // Sorgho (une seule règle dans le guide : stress hydrique estival, source ARVALIS 2016)
+  { group: 'sorgho', kind: 'info', from: [7, 1], to: [8, 31], label: 'Stress hydrique estival, remplissage des grains : bilan pluie − ETP',
+    info: days => balanceText(days) },
+  // Vesse : le guide n'a aucun indicateur pour la vesce ; règles du pois protéagineux (culture voisine) par approximation
+  { group: 'vesse', kind: 'day', cls: 'ko', from: [2, 1], to: [3, 31], label: 'Gel hivernal (Tmin ≤ -4 °C), règle du pois',
+    test: d => has(d.tmin) && d.tmin <= -4, show: d => `${d.tmin.toFixed(1)} °C` },
+  { group: 'vesse', kind: 'day', cls: 'warn', from: [6, 1], to: [6, 30], label: 'Échaudage à la floraison (Tmax > 25 °C), règle du pois de printemps',
+    test: d => has(d.tmax) && d.tmax > 25, show: d => `${d.tmax.toFixed(0)} °C` },
+  { group: 'vesse', kind: 'info', from: [5, 1], to: [6, 30], label: 'Déficit hydrique en fin de cycle : bilan pluie − ETP, règle du pois',
+    info: days => balanceText(days) },
+  // Tournesol (le guide ne fournit que cette règle de stress ; le reste concerne les degrés-jours)
+  { group: 'tournesol', kind: 'day', cls: 'warn', from: [4, 1], to: [6, 30], label: 'Températures très basses, levée freinée (Tmax &lt; 10 °C)',
+    test: d => has(d.tmax) && d.tmax < 10, show: d => `${d.tmax.toFixed(0)} °C` }
+];
+
+const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+const fmtMD = ([m, d]) => `${d} ${MONTHS[m - 1]}`;
+const mdOf = key => Number(key.slice(5, 7)) * 100 + Number(key.slice(8, 10));
+const inWindow = (key, r) => mdOf(key) >= r.from[0] * 100 + r.from[1] && mdOf(key) <= r.to[0] * 100 + r.to[1];
+
+function balanceText(days) {
+  const d = days.filter(x => has(x.precip) && has(x.et0));
+  if (!d.length) return 'ETP indisponible';
+  const b = sum(d.map(x => x.precip - x.et0));
+  return `${b > 0 ? '+' : ''}${b.toFixed(1)} mm sur ${d.length} j`;
+}
+function dryRunText(days) {
+  let n = 0;
+  for (const d of days) { if (has(d.precip) && d.precip < 1) n++; else break; }
+  return `${n} jour${n > 1 ? 's' : ''} depuis aujourd'hui (sur ${days.length} j de prévision)`;
+}
+
+function selectedCrops() {
+  try {
+    const v = JSON.parse(storage.get(CROPS_KEY) || 'null');
+    if (Array.isArray(v)) return CROPS.filter(c => v.includes(c.id));
+  } catch { /* valeur illisible : on retombe sur le défaut */ }
+  return CROPS.slice();
+}
+
+function buildCropBoxes() {
+  const sel = new Set(selectedCrops().map(c => c.id));
+  const box = document.getElementById('crops-boxes');
+  box.innerHTML = CROPS.map(c =>
+    `<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-crop="${c.id}"` +
+    ` style="flex:none;width:auto;padding:0"${sel.has(c.id) ? ' checked' : ''}> ${c.label}</label>`).join('');
+  box.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', () => {
+    const ids = [...box.querySelectorAll('input[type=checkbox]')].filter(x => x.checked).map(x => x.dataset.crop);
+    storage.set(CROPS_KEY, JSON.stringify(ids));
+    renderCrops();
+  }));
+}
+
+function renderCrops() {
+  state.cropAlerts = 0;
+  const crops = selectedCrops();
+  document.getElementById('crops-summary').textContent = crops.length ? crops.map(c => c.label).join(', ') : 'aucune';
+  const alertsEl = document.getElementById('crops-alerts');
+  const rulesEl = document.getElementById('crops-rules');
+
+  const groups = [...new Set(crops.map(c => c.group))];
+  rulesEl.innerHTML = groups.map(g => {
+    const names = crops.filter(c => c.group === g).map(c => c.label).join(', ');
+    const items = CROP_RULES.filter(r => r.group === g)
+      .map(r => `<li>${fmtMD(r.from)} → ${fmtMD(r.to)} : ${r.label}${r.kind === 'info' ? ' <em>(information)</em>' : ''}</li>`).join('');
+    return `<div><strong>${names}</strong><ul style="margin:4px 0 8px;padding-left:20px">${items}</ul></div>`;
+  }).join('') + (groups.length ? '<p>Source : guide Climadiag Agriculture (Météo-France / Solagro). Seuils à valider avec l\'agriculteur. ' +
+    'Le guide ne détaille ni l\'orge, ni l\'avoine, ni le triticale, ni le seigle : ils utilisent les règles « Céréales », comme le blé. ' +
+    'Maïs tardif : règles du maïs. Tournesol et sorgho : une seule règle dans le guide. Vesse : aucune règle dans le guide, règles du pois protéagineux par approximation.</p>' : '');
+
+  if (!state.ok.length) { alertsEl.innerHTML = ''; return; }
+  if (!crops.length) { alertsEl.innerHTML = '<span class="muted">Aucune culture sélectionnée.</span>'; return; }
+
+  const days = [];
+  for (const k of nextDayKeys()) {
+    const vals = dayValues(k);
+    if (vals.length) days.push({ key: k, ...averageValues(vals, dayIdx(k)) });
+  }
+
+  alertsEl.innerHTML = groups.map(g => {
+    const names = crops.filter(c => c.group === g).map(c => c.label).join(', ');
+    const lines = [];
+    let activeDayRules = 0;
+    for (const r of CROP_RULES.filter(x => x.group === g)) {
+      const inside = days.filter(d => inWindow(d.key, r));
+      if (!inside.length) continue;
+      if (r.kind === 'info') {
+        lines.push(`<div><span class="muted">ℹ️ ${r.label} :</span> ${r.info(inside)}</div>`);
+      } else {
+        activeDayRules++;
+        const hit = inside.filter(r.test);
+        if (hit.length) lines.push(`<div><span class="${r.cls}">⚠ ${r.label} :</span> ${hit.map(d => `${dayLabel(d.key)} (${r.show(d)})`).join(', ')}</div>`);
+      }
+    }
+    const body = lines.length ? lines.join('')
+      : activeDayRules ? '<span class="ok">Aucune alerte pour cette culture.</span>'
+      : '<span class="muted">Aucune période de surveillance en ce moment.</span>';
+    return `<div style="margin-bottom:8px"><strong>${names}</strong>${names === GROUP_LABEL[g] ? '' : ` <span class="muted">(${GROUP_LABEL[g]})</span>`}<br>${body}</div>`;
+  }).join('');
+  state.cropAlerts = (alertsEl.innerHTML.match(/⚠ /g) || []).length;
+  updateAgroBadge();
+}
+
+/* ---------- Pluie des 30 derniers jours : relevés réels ----------
+   1) Pluviomètres Météo-France proches (fichier pluie-stations.js, mis à jour chaque jour par GitHub Actions).
+   2) Pluviomètre de l'agriculteur (saisie manuelle, enregistrée dans le navigateur).
+   Point à trancher avec l'agriculteur : la saisie journalière (fréquence, qui la fait, format). */
+const RAIN_LOG_KEY = 'meteo.rainLog';
+const STATION_RADIUS_KM = 35, STATIONS_SHOWN = 3;
+const ymd = key => key.replace(/-/g, '');
+const distKm = (a, b) => {
+  const R = Math.PI / 180;
+  const h = Math.sin((b.lat - a.lat) * R / 2) ** 2 + Math.cos(a.lat * R) * Math.cos(b.lat * R) * Math.sin((b.lon - a.lon) * R / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(h));
+};
+const lastDays = (n, endOffset = 0) => Array.from({ length: n }, (_, i) => {
+  const d = new Date(); d.setDate(d.getDate() - endOffset - (n - 1 - i)); return localDate(d);
+}); // n jours consécutifs, le dernier = aujourd'hui - endOffset
+const fmtDay = key => new Date(`${key}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+
+function renderRainStations(loc) {
+  const el = document.getElementById('rain-stations');
+  const detail = document.getElementById('rain-stations-detail');
+  const P = window.PLUIE_STATIONS;
+  detail.innerHTML = '';
+  if (!P || !P.stations || !P.stations.length) {
+    el.innerHTML = '<span class="muted">Relevés Météo-France indisponibles (fichier pluie-stations.js absent).</span>'; return;
+  }
+  const near = P.stations.map(s => ({ ...s, d: distKm(loc, s) })).filter(s => s.d <= STATION_RADIUS_KM).sort((a, b) => a.d - b.d).slice(0, STATIONS_SHOWN);
+  if (!near.length) {
+    el.innerHTML = `<span class="muted">Aucun pluviomètre Météo-France enregistré à moins de ${STATION_RADIUS_KM} km de ce lieu (le fichier couvre : ${P.center?.label ?? 'une autre zone'}).</span>`; return;
+  }
+  const win = lastDays(30, 1); // 30 jours jusqu'à hier
+  const rows = near.map(s => {
+    const vals = win.map(k => s.days[ymd(k)]).filter(v => v != null);
+    const last = Object.keys(s.days).sort().pop();
+    return { s, n: vals.length, total: vals.reduce((a, b) => a + b, 0), last };
+  });
+  const usable = rows.filter(r => r.n >= 20);
+  const lastAll = rows.map(r => r.last).sort().pop();
+  const lastKey = `${lastAll.slice(0, 4)}-${lastAll.slice(4, 6)}-${lastAll.slice(6, 8)}`;
+  const age = Math.round((new Date(localDate(new Date()) + 'T12:00:00') - new Date(lastKey + 'T12:00:00')) / 86400000);
+  if (!usable.length) {
+    el.innerHTML = '<span class="ko">Données des stations trop anciennes ou incomplètes pour ce mois.</span>';
+  } else {
+    const avg = usable.reduce((a, r) => a + r.total, 0) / usable.length;
+    const lo = Math.min(...usable.map(r => r.total)), hi = Math.max(...usable.map(r => r.total));
+    el.innerHTML = `<div><strong>${avg.toFixed(0)} mm</strong> en moyenne sur les 30 derniers jours ` +
+      `<span class="muted">(${usable.length} station${usable.length > 1 ? 's' : ''} : de ${lo.toFixed(0)} à ${hi.toFixed(0)} mm)</span></div>` +
+      `<div class="muted">Relevés officiels Météo-France, jusqu'au ${fmtDay(lastKey).replace(/\.$/, '')}. Stations à ${usable[0].s.d.toFixed(0)} à ${usable[usable.length - 1].s.d.toFixed(0)} km : la pluie peut différer de plusieurs mm sur vos parcelles.</div>` +
+      (age > 4 ? `<div class="warn">Dernier relevé il y a ${age} jours : la mise à jour automatique est peut-être en panne.</div>` : '');
+  }
+  detail.innerHTML = tableHtml(['Station', 'Distance', 'Altitude', 'Jours relevés', 'Cumul 30 j', 'Dernier jour'],
+    rows.map(r => `<tr><td>${r.s.name}</td><td>${r.s.d.toFixed(1)} km</td><td>${r.s.alt} m</td><td>${r.n}/30</td><td>${r.total.toFixed(1)} mm</td><td>${r.last.slice(6, 8)}/${r.last.slice(4, 6)}</td></tr>`));
+}
+
+function getRainLog() {
+  try { const v = JSON.parse(storage.get(RAIN_LOG_KEY) || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+}
+function setRainLog(log) { storage.set(RAIN_LOG_KEY, JSON.stringify(log)); }
+
+function renderRainMine() {
+  const el = document.getElementById('rain-mine');
+  const list = document.getElementById('rain-mine-list');
+  const log = getRainLog();
+  const win = lastDays(30, 0); // 30 jours jusqu'à aujourd'hui compris
+  const entered = win.filter(k => log[k] != null);
+  const total = entered.reduce((a, k) => a + log[k], 0);
+  const w7 = lastDays(7, 0).filter(k => log[k] != null);
+  if (!Object.keys(log).length) {
+    el.innerHTML = '<span class="muted">Aucun relevé saisi. Saisissez la pluie relevée au pluviomètre pour suivre le cumul sur 30 jours.</span>';
+  } else {
+    const missing = 30 - entered.length;
+    el.innerHTML = `<div><strong>${total.toFixed(1)} mm</strong> sur les 30 derniers jours <span class="muted">(${fmtDay(win[0])} au ${fmtDay(win[29])})</span></div>` +
+      `<div class="muted">7 derniers jours : ${w7.reduce((a, k) => a + log[k], 0).toFixed(1)} mm · ${entered.length} jour${entered.length > 1 ? 's' : ''} saisi${entered.length > 1 ? 's' : ''} sur 30</div>` +
+      (missing ? `<div class="warn">${missing} jour${missing > 1 ? 's' : ''} non saisi${missing > 1 ? 's' : ''} : ils ne sont pas comptés comme 0, le cumul réel peut être plus élevé.</div>` : '');
+  }
+  const days = Object.keys(log).sort().reverse().slice(0, 60);
+  list.innerHTML = days.length
+    ? tableHtml(['Jour', 'Pluie', ''], days.map(k => `<tr><td>${fmtDay(k)}</td><td>${log[k].toFixed(1)} mm</td><td><button type="button" class="secondary" data-del-rain="${k}" style="padding:4px 10px">Supprimer</button></td></tr>`))
+    : '<p class="muted">Aucun relevé.</p>';
+}
+
+function addRain() {
+  const msg = document.getElementById('rain-msg');
+  const date = document.getElementById('rain-date').value;
+  const mmRaw = document.getElementById('rain-mm').value;
+  const mm = Number(String(mmRaw).replace(',', '.'));
+  if (!date) { msg.textContent = 'Choisissez une date.'; return; }
+  if (date > localDate(new Date())) { msg.textContent = 'La date ne peut pas être dans le futur.'; return; }
+  if (mmRaw === '' || Number.isNaN(mm) || mm < 0 || mm > 300) { msg.textContent = 'Saisissez une pluie en mm (de 0 à 300). Mettez 0 pour un jour sans pluie.'; return; }
+  const log = getRainLog();
+  const replaced = log[date] != null;
+  log[date] = Math.round(mm * 10) / 10;
+  setRainLog(log);
+  document.getElementById('rain-mm').value = '';
+  msg.textContent = replaced ? `Relevé du ${fmtDay(date)} remplacé.` : `Relevé du ${fmtDay(date)} ajouté.`;
+  renderRainMine();
+}
+
+/* ---------- Pluie des 30 derniers jours : estimation par modèles (indicatif) ----------
+   Estimation par plusieurs modèles (Open-Meteo, past_days) : ce n'est pas un relevé de pluviomètre, et les modèles
+   s'écartent beaucoup sur la pluie déjà tombée (jusqu'à 2 fois). On affiche la moyenne et la fourchette. */
+const RAIN_MODELS = [['best_match', 'Open-Meteo'], ['meteofrance_seamless', 'Météo-France'], ['gfs_seamless', 'GFS'], ['ecmwf_ifs025', 'ECMWF']];
+
+async function loadPastRain(loc) {
+  const el = document.getElementById('past-rain');
+  const modelsEl = document.getElementById('past-rain-models');
+  const daysEl = document.getElementById('past-rain-days');
+  const hintEl = document.getElementById('past-rain-hint');
+  el.innerHTML = '<span class="muted">Chargement de la pluie passée…</span>';
+  try {
+    const d = await getJson(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}` +
+      `&daily=precipitation_sum&models=${RAIN_MODELS.map(m => m[0]).join(',')}&past_days=30&forecast_days=1&timezone=auto`);
+    const todayKey = localDate(new Date());
+    const idx = d.daily.time.map((t, i) => i).filter(i => d.daily.time[i] < todayKey).slice(-30); // hors aujourd'hui
+    if (!idx.length) throw new Error('aucune donnée');
+    const series = RAIN_MODELS.map(([key, label]) => ({ label, v: idx.map(i => d.daily[`precipitation_sum_${key}`]?.[i] ?? null) }))
+      .filter(s => s.v.filter(x => x != null).length >= idx.length * 0.8);
+    if (!series.length) throw new Error('aucun modèle disponible');
+    const total = (v, n) => sum(v.slice(-n));
+    const stats = n => { const t = series.map(s => total(s.v, n)).filter(x => x != null); return { mean: mean(t), min: Math.min(...t), max: Math.max(...t) }; };
+    const periods = [7, 14, 30];
+    const st = Object.fromEntries(periods.map(n => [n, stats(n)]));
+    const fmt = x => x.toFixed(0);
+    el.innerHTML = `<div><strong>${fmt(st[30].mean)} mm</strong> en moyenne sur les 30 derniers jours ` +
+      `<span class="muted">(de ${fmt(st[30].min)} à ${fmt(st[30].max)} mm selon le modèle)</span></div>` +
+      `<div class="muted">7 derniers jours : ${fmt(st[7].mean)} mm (${fmt(st[7].min)} à ${fmt(st[7].max)}) · 14 derniers jours : ${fmt(st[14].mean)} mm (${fmt(st[14].min)} à ${fmt(st[14].max)})</div>`;
+
+    const rowsM = series.map(s => `<tr><td>${s.label}</td>${periods.map(n => `<td>${withUnit(total(s.v, n), 'mm', 1)}</td>`).join('')}</tr>`);
+    rowsM.push(`<tr style="font-weight:700"><td>Moyenne</td>${periods.map(n => `<td>${st[n].mean.toFixed(1)} mm</td>`).join('')}</tr>`);
+    modelsEl.innerHTML = tableHtml(['Modèle', ...periods.map(n => `${n} j`)], rowsM);
+
+    const rowsD = idx.map((_, k) => {
+      const vals = series.map(s => s.v[k]).filter(x => x != null);
+      const m = mean(vals);
+      return `<tr><td>${dayLabel(d.daily.time[idx[k]])}</td><td>${m == null ? '–' : m.toFixed(1) + ' mm'}</td>` +
+        `<td class="muted">${vals.length ? Math.min(...vals).toFixed(1) + ' à ' + Math.max(...vals).toFixed(1) + ' mm' : '–'}</td></tr>`;
+    }).reverse();
+    daysEl.innerHTML = tableHtml(['Jour', 'Moyenne des modèles', 'Fourchette'], rowsD);
+
+    hintEl.textContent = `Estimation par modèles météo (Open-Meteo), pas un relevé de pluviomètre : pour la pluie déjà tombée, les modèles s'écartent beaucoup ` +
+      `(ici de ${fmt(st[30].min)} à ${fmt(st[30].max)} mm sur 30 jours). Ordre de grandeur utile, pas une mesure exacte. Période : jusqu'à hier, aujourd'hui exclu.`;
+  } catch (err) {
+    el.innerHTML = `<span class="ko">Pluie passée indisponible (${err.message})</span>`;
+    modelsEl.innerHTML = ''; daysEl.innerHTML = ''; hintEl.textContent = '';
+  }
+}
+
+async function refresh(loc) {
+  state.loc = loc;
+  const key = storage.get(VC_KEY) ?? '';
+  const statusEl = document.getElementById('sources-status');
+  statusEl.textContent = 'Chargement des prévisions…';
+
+  const active = SOURCES.filter(s => !s.needsKey || key);
+  const results = await Promise.allSettled(active.map(s => s.fetch(loc.lat, loc.lon, key)));
+
+  const statusParts = [];
+  const byName = new Map();
+  results.forEach((r, i) => {
+    const name = active[i].name;
+    if (r.status === 'fulfilled') {
+      byName.set(name, { name, data: r.value });
+      statusParts.push(`<span class="ok">✔ ${name}</span>`);
+    } else {
+      byName.set(name, { name, data: null, error: `Erreur : ${r.reason.message}` });
+      statusParts.push(`<span class="ko">✖ ${name} (${r.reason.message})</span>`);
+    }
+  });
+  state.all = SOURCES.map(s => byName.get(s.name) ?? { name: s.name, data: null, error: 'Clé API requise (voir ci-dessus).' });
+  state.ok = state.all.filter(s => s.data);
+
+  if (!key) statusParts.push('<span class="muted">Visual Crossing non configuré</span>');
+  if (state.ok.length < 3) statusParts.push('<span class="ko">⚠ Moins de 3 sources : moyenne peu fiable</span>');
+  // Résumé compact ; le détail source par source se déplie au clic
+  const nbOk = state.ok.length, nbTotal = active.length;
+  const failed = nbOk < nbTotal;
+  const summary = `<span class="${failed ? 'ko' : 'ok'}">${failed ? '⚠' : '✔'} ${nbOk}/${nbTotal} sources chargées</span>` +
+    (state.ok.length < 3 ? ' <span class="ko">· moyenne peu fiable</span>' : '');
+  statusEl.innerHTML = `<details${failed ? ' open' : ''}><summary style="cursor:pointer">${summary}</summary>` +
+    `<div style="margin-top:4px">${statusParts.join(' · ')}</div></details>`;
+
+  populateDays();
+  renderFrostSummary();
+  renderAgro();
+  renderCrops();
+  updateAgroBadge();
+  render();
+  renderRainStations(loc);
+  loadPastRain(loc); // indépendant des sources de prévision ; gère ses propres erreurs
+}
+
+function populateDays() {
+  const sel = document.getElementById('day-select');
+  const keys = nextDayKeys();
+  sel.innerHTML = keys.map(k => `<option value="${k}">${dayLabel(k)}</option>`).join('');
+  if (!state.day || !keys.includes(state.day)) state.day = keys[0];
+  sel.value = state.day;
+}
+
+// Formulaire de recherche replié dès qu'un lieu est choisi ; le bouton « Changer » le rouvre
+function showPlaceForm(open) {
+  document.getElementById('search-form').hidden = !open;
+  document.getElementById('change-place').hidden = open;
+  if (open) document.getElementById('place').focus();
+}
+
+document.getElementById('change-place').addEventListener('click', () => showPlaceForm(true));
+
+function setLocation(loc) {
+  document.getElementById('place-label').textContent = `📍 Lieu : ${loc.label}`;
+  showPlaceForm(false);
+  storage.set(LOC_KEY, JSON.stringify(loc));
+  refresh(loc).catch(err => {
+    document.getElementById('sources-status').innerHTML = `<span class="ko">Erreur : ${err.message}</span>`;
+  });
+}
+
+document.querySelectorAll('button.tab').forEach(btn => btn.addEventListener('click', () => {
+  // Un clic sur « Par heure » déjà actif bascule entre 3 h et 1 h
+  if (btn.dataset.mode === 'hour' && state.mode === 'hour') state.step = state.step === 3 ? 1 : 3;
+  state.mode = btn.dataset.mode;
+  document.querySelectorAll('button.tab').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+  render();
+}));
+
+document.getElementById('day-select').addEventListener('change', e => { state.day = e.target.value; render(); });
+document.getElementById('cmp-day').addEventListener('change', e => { state.cmpDay = e.target.value; render(); });
+
+document.getElementById('search-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('place').value.trim();
+  try {
+    setLocation(await geocode(name));
+  } catch (err) {
+    document.getElementById('place-label').textContent = err.message;
+  }
+});
+
+document.getElementById('geo').addEventListener('click', () => {
+  if (!navigator.geolocation) {
+    document.getElementById('place-label').textContent = 'Géolocalisation non disponible.';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => setLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude, label: 'Position actuelle' }),
+    () => { document.getElementById('place-label').textContent = 'Position refusée.'; }
+  );
+});
+
+// Zone de la clé repliée dès qu'une clé est enregistrée ; « Changer » la rouvre
+function showKeyForm(open) {
+  document.getElementById('key-form').hidden = !open;
+  document.getElementById('key-saved').hidden = open;
+}
+
+document.getElementById('change-key').addEventListener('click', () => {
+  showKeyForm(true);
+  document.getElementById('vc-key').focus();
+});
+
+document.getElementById('save-key').addEventListener('click', () => {
+  const value = document.getElementById('vc-key').value.trim();
+  if (value) {
+    storage.set(VC_KEY, value);
+    document.getElementById('vc-key').value = '';
+    showKeyForm(false);
+  }
+  const loc = JSON.parse(storage.get(LOC_KEY) || 'null');
+  if (loc) refresh(loc).catch(() => {});
+});
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => { /* installation indisponible */ });
+}
+
+document.querySelectorAll('button.maintab').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+document.getElementById('rain-add').addEventListener('click', addRain);
+document.getElementById('rain-mm').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addRain(); } });
+document.getElementById('rain-mine-list').addEventListener('click', e => {
+  const k = e.target?.dataset?.delRain;
+  if (!k) return;
+  const log = getRainLog();
+  delete log[k];
+  setRainLog(log);
+  document.getElementById('rain-msg').textContent = `Relevé du ${fmtDay(k)} supprimé.`;
+  renderRainMine();
+});
+
+(function init() {
+  showTab(storage.get(TAB_KEY));
+  const rd = document.getElementById('rain-date');
+  rd.value = localDate(new Date());
+  rd.max = rd.value;
+  renderRainMine();
+  renderWeightsInfo();
+  buildCropBoxes();
+  renderCrops();
+  showKeyForm(!storage.get(VC_KEY));
+  if (storage.get(VC_KEY)) document.getElementById('vc-key').placeholder = 'Nouvelle clé (remplace l\'ancienne)';
+  const loc = JSON.parse(storage.get(LOC_KEY) || 'null');
+  if (loc) setLocation(loc);
+})();
+</script>
+</body>
+</html>
