@@ -130,6 +130,12 @@ td.avg { font-weight: 700; color: var(--accent); }
       <summary class="muted" style="cursor:pointer">Périodes surveillées et seuils</summary>
       <div id="crops-rules" class="muted" style="margin-top:6px"></div>
     </details>
+    <h3 class="src-title">Risque de maladies fongiques <small class="muted">(indicatif)</small></h3>
+    <div id="fungal-alerts" class="status"></div>
+    <details style="margin-top:6px">
+      <summary class="muted" style="cursor:pointer">Maladies surveillées, méthode et limites</summary>
+      <div id="fungal-rules" class="muted" style="margin-top:6px"></div>
+    </details>
     <details style="margin-top:8px">
       <summary class="muted" style="cursor:pointer">Pluie, évapotranspiration (ETP) et bilan hydrique par jour</summary>
       <div class="table-wrap" id="agro-table" style="margin-top:8px"></div>
@@ -588,6 +594,7 @@ const THRESHOLDS = {
   hot: 25,        // jour chaud : Tmax >= 25 °C
   veryHot: 35,    // jour très chaud : Tmax >= 35 °C
   frost: 0,       // gel : Tmin <= 0 °C
+  frostWatch: 3,  // vigilance gel au sol : Tmin < 3 °C (repère d'un site agricole : la T au sol peut être sous 0 °C quand l'air est à 2-3 °C)
   hardFrost: -4,  // gel fort : Tmin <= -4 °C
   intenseRain: 25,// pluie intense : > 25 mm/jour
   wind: 19,       // vent soutenu : vent moyen > 19 km/h
@@ -605,6 +612,8 @@ const ALERT_GROUPS = [
     test: d => has(d.tmin) && d.tmin <= THRESHOLDS.hardFrost, show: d => `${d.tmin.toFixed(1)} °C` },
   { icon: '❄️', label: `Gel (≤ ${THRESHOLDS.frost} °C)`, cls: 'warn',
     test: d => has(d.tmin) && d.tmin <= THRESHOLDS.frost && d.tmin > THRESHOLDS.hardFrost, show: d => `${d.tmin.toFixed(1)} °C` },
+  { icon: '🌡️', label: `Vigilance gel au sol (Tmin < ${THRESHOLDS.frostWatch} °C)`, cls: 'warn',
+    test: d => has(d.tmin) && d.tmin < THRESHOLDS.frostWatch && d.tmin > THRESHOLDS.frost, show: d => `${d.tmin.toFixed(1)} °C` },
   { icon: '🌧️', label: `Pluie intense (> ${THRESHOLDS.intenseRain} mm)`, cls: 'ko',
     test: d => has(d.precip) && d.precip > THRESHOLDS.intenseRain, show: d => `${d.precip.toFixed(0)} mm` },
   { icon: '💨', label: `Vent soutenu (moy. > ${THRESHOLDS.wind} km/h)`, cls: 'warn',
@@ -664,7 +673,7 @@ function renderAgro() {
       const v = s.data.daily.get(k);
       if (!v) return `<tr><td>${dayLabel(k)}</td><td colspan="5" class="muted">–</td></tr>`;
       return `<tr><td>${dayLabel(k)}</td>` +
-        cell(v.tmin, '°C', 1, levelT(v.tmin, THRESHOLDS.hardFrost, THRESHOLDS.frost, false)) +
+        cell(v.tmin, '°C', 1, levelT(v.tmin, THRESHOLDS.hardFrost, THRESHOLDS.frost, false) || (has(v.tmin) && v.tmin < THRESHOLDS.frostWatch ? 'warn' : '')) +
         cell(v.tmax, '°C', 1, levelT(v.tmax, THRESHOLDS.veryHot, THRESHOLDS.hot, true)) +
         cell(v.precip, 'mm', 1, has(v.precip) && v.precip > THRESHOLDS.intenseRain ? 'ko' : '') +
         cell(v.wind, 'km/h', 0, has(v.wind) && v.wind > THRESHOLDS.wind ? 'warn' : '') +
@@ -680,7 +689,7 @@ function renderAgro() {
 /* ---------- Onglets : Prévisions météo / Alertes agronomiques ---------- */
 const TAB_KEY = 'meteo.tab';
 function updateAgroBadge() {
-  const n = (state.agroLines || 0) + (state.cropAlerts || 0);
+  const n = (state.agroLines || 0) + (state.cropAlerts || 0) + (state.fungalAlerts || 0);
   document.getElementById('tab-agro-btn').textContent = n ? `Alertes agronomiques (${n})` : 'Alertes agronomiques';
 }
 function showTab(name) {
@@ -793,8 +802,96 @@ function buildCropBoxes() {
   }));
 }
 
+/* ---------- Risque de maladies fongiques (indicatif) ----------
+   Ce n'est PAS un modèle de maladie : on compte, pour chaque jour, les heures « humides » (humidité ≥ 90 % ou pluie ≥ 0,2 mm)
+   pendant lesquelles la température est dans la plage favorable à la maladie, pendant sa période de risque.
+   Moyenne des sources horaires complètes sur la journée. Niveaux : moyen ≥ 6 h, élevé ≥ 12 h (repères à valider avec l'agriculteur).
+   Plages de température : BSV / Arvalis quand une indication existe (basis 'bsv', qualitative), sinon connaissances générales
+   d'agronomie (basis 'gen'). Les périodes de risque sont approximatives (stade réel de la culture non connu).
+   Référence officielle pour décider d'un traitement : le Bulletin de Santé du Végétal (BSV) de la région. */
+const WET_RH = 90, WET_MM = 0.2, FUNGAL_MID = 6, FUNGAL_HIGH = 12;
+const CER = ['ble', 'triticale', 'seigle', 'orge', 'avoine'];
+const DISEASES = [
+  // Céréales
+  { label: 'Rouille jaune', crops: ['ble', 'triticale', 'orge'], from: [2, 1], to: [6, 15], t: [8, 15], basis: 'bsv' },
+  { label: 'Rouille brune', crops: ['ble', 'triticale', 'seigle'], from: [4, 15], to: [7, 15], t: [15, 22], basis: 'bsv' },
+  { label: 'Septoriose', crops: ['ble', 'triticale'], from: [3, 15], to: [6, 30], t: [12, 22], basis: 'bsv' },
+  { label: 'Fusariose des épis', crops: CER, from: [5, 10], to: [6, 30], t: [15, 25], basis: 'bsv' },
+  { label: 'Oïdium', crops: ['ble', 'triticale', 'orge', 'avoine'], from: [4, 1], to: [6, 30], t: [10, 20], basis: 'bsv' },
+  { label: 'Rhynchosporiose', crops: ['orge', 'seigle'], from: [3, 1], to: [6, 15], t: [5, 18], basis: 'bsv' },
+  { label: 'Helminthosporiose de l\'orge', crops: ['orge'], from: [4, 1], to: [6, 30], t: [15, 25], basis: 'bsv' },
+  { label: 'Rouille naine', crops: ['orge'], from: [5, 1], to: [7, 15], t: [15, 25], basis: 'bsv' },
+  { label: 'Ergot du seigle', crops: ['seigle'], from: [5, 10], to: [6, 15], t: [10, 20], basis: 'gen' },
+  { label: 'Rouille couronnée', crops: ['avoine'], from: [6, 1], to: [7, 31], t: [15, 25], basis: 'gen' },
+  // Maïs et sorgho
+  { label: 'Helminthosporiose (turcicum)', crops: ['mais', 'mais_tardif', 'sorgho'], from: [7, 1], to: [9, 15], t: [18, 27], basis: 'bsv' },
+  { label: 'Fusariose de l\'épi (mycotoxines)', crops: ['mais', 'mais_tardif'], from: [8, 1], to: [10, 15], t: [20, 30], basis: 'bsv' },
+  { label: 'Anthracnose', crops: ['sorgho'], from: [7, 1], to: [9, 15], t: [24, 30], basis: 'gen' },
+  // Tournesol
+  { label: 'Mildiou', crops: ['tournesol'], from: [4, 15], to: [6, 15], t: [10, 18], basis: 'gen' },
+  { label: 'Sclérotinia du capitule', crops: ['tournesol'], from: [6, 25], to: [8, 15], t: [15, 25], basis: 'bsv' },
+  { label: 'Phomopsis', crops: ['tournesol'], from: [6, 15], to: [8, 31], t: [20, 27], basis: 'gen' },
+  // Vesse (par approximation, d'après les protéagineux voisins)
+  { label: 'Ascochytose / botrytis', crops: ['vesse'], from: [4, 15], to: [6, 30], t: [15, 25], basis: 'bsv' }
+];
+const BASIS_LABEL = { bsv: 'indication qualitative BSV / Arvalis', gen: 'connaissances générales' };
+
+// Heures humides dans la plage [lo, hi] °C ce jour-là pour une source ; null si la source n'a pas toutes les heures du jour
+function wetHoursInRange(src, key, lo, hi) {
+  let n = 0, seen = 0;
+  for (let h = 0; h < 24; h++) {
+    const e = src.data?.hourly.get(`${key}T${pad(h)}`);
+    if (!e || !has(e.temp)) continue;
+    seen++;
+    const wet = (has(e.hum) && e.hum >= WET_RH) || (has(e.precip) && e.precip >= WET_MM);
+    if (wet && e.temp >= lo && e.temp <= hi) n++;
+  }
+  return seen >= 20 ? n : null;
+}
+const fungalHours = (key, [lo, hi]) => mean(state.ok.map(s => wetHoursInRange(s, key, lo, hi)));
+
+function renderFungal() {
+  state.fungalAlerts = 0;
+  const el = document.getElementById('fungal-alerts');
+  const rulesEl = document.getElementById('fungal-rules');
+  const ids = new Set(selectedCrops().map(c => c.id));
+  const label = id => CROPS.find(c => c.id === id).label;
+  const mine = DISEASES.map(d => ({ ...d, mine: d.crops.filter(c => ids.has(c)) })).filter(d => d.mine.length);
+
+  rulesEl.innerHTML = (mine.length ? '<ul style="margin:4px 0 8px;padding-left:20px">' + mine.map(d =>
+    `<li><strong>${d.label}</strong> (${d.mine.map(label).join(', ')}) : ${fmtMD(d.from)} → ${fmtMD(d.to)}, ` +
+    `${d.t[0]} à ${d.t[1]} °C <em>(${BASIS_LABEL[d.basis]})</em></li>`).join('') + '</ul>' : '') +
+    '<p>Méthode : pour chaque jour, on compte les heures où l\'humidité atteint 90 % (ou il pleut) alors que la température est dans la plage ' +
+    'favorable à la maladie, en moyenne des sources qui fournissent toutes les heures du jour. Niveau moyen à partir de 6 h, élevé à partir de 12 h. ' +
+    'C\'est un indicateur de <strong>conditions favorables</strong>, pas un diagnostic : il ne connaît ni le stade de la culture, ni la variété, ' +
+    'ni la présence réelle de la maladie, ni les traitements faits, et estime l\'humectation des feuilles à partir de l\'humidité de l\'air. ' +
+    'Les plages de température sont des repères à valider avec l\'agriculteur. Seul le Bulletin de Santé du Végétal (BSV) de la région fait foi pour décider d\'un traitement. ' +
+    'Seuls les 7 prochains jours sont comptés (pas les jours passés).</p>';
+
+  if (!state.ok.length) { el.innerHTML = ''; return; }
+  if (!ids.size) { el.innerHTML = '<span class="muted">Aucune culture sélectionnée.</span>'; return; }
+
+  const lines = [];
+  let active = 0;
+  for (const d of mine) {
+    const keys = nextDayKeys().filter(k => inWindow(k, d));
+    if (!keys.length) continue;
+    active++;
+    const hits = keys.map(k => ({ k, h: fungalHours(k, d.t) })).filter(x => x.h != null && x.h >= FUNGAL_MID);
+    if (!hits.length) continue;
+    const high = hits.some(x => x.h >= FUNGAL_HIGH);
+    lines.push(`<div><span class="${high ? 'ko' : 'warn'}">🍄 ${d.label}</span> <span class="muted">(${d.mine.map(label).join(', ')})</span> : ` +
+      hits.map(x => `${dayLabel(x.k)} (${x.h.toFixed(0)} h, ${x.h >= FUNGAL_HIGH ? 'élevé' : 'moyen'})`).join(', ') + '</div>');
+  }
+  state.fungalAlerts = lines.length;
+  el.innerHTML = lines.length ? lines.join('')
+    : active ? '<span class="ok">Pas de conditions particulièrement favorables aux maladies sur les 7 prochains jours.</span>'
+    : '<span class="muted">Aucune période de risque en ce moment pour vos cultures.</span>';
+}
+
 function renderCrops() {
   state.cropAlerts = 0;
+  renderFungal();
   const crops = selectedCrops();
   document.getElementById('crops-summary').textContent = crops.length ? crops.map(c => c.label).join(', ') : 'aucune';
   const alertsEl = document.getElementById('crops-alerts');
