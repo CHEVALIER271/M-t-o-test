@@ -124,6 +124,7 @@ td.avg { font-weight: 700; color: var(--accent); }
     <details>
       <summary class="muted" style="cursor:pointer">Mes cultures : <span id="crops-summary"></span></summary>
       <div class="row" id="crops-boxes" style="margin-top:8px"></div>
+      <div id="crops-sowing" style="margin-top:8px"></div>
     </details>
     <div id="crops-alerts" class="status" style="margin-top:6px"></div>
     <details style="margin-top:6px">
@@ -724,11 +725,11 @@ const GROUP_LABEL = { cereales: 'Céréales', mais: 'Maïs', sorgho: 'Sorgho', t
 // from / to = [mois, jour] ; kind 'day' = test jour par jour, 'info' = valeur sur la période (pas de seuil d'alerte)
 const CROP_RULES = [
   // Céréales
-  { group: 'cereales', kind: 'day', cls: 'ko', from: [2, 20], to: [4, 10], label: 'Gel début montaison (Tmin ≤ -4 °C)',
+  { group: 'cereales', kind: 'day', cls: 'ko', from: [2, 20], to: [4, 10], gdd: [650, 1000], label: 'Gel début montaison (Tmin ≤ -4 °C)',
     test: d => has(d.tmin) && d.tmin <= -4, show: d => `${d.tmin.toFixed(1)} °C` },
-  { group: 'cereales', kind: 'day', cls: 'warn', from: [4, 1], to: [5, 31], label: 'Gel tardif en montaison (Tmin ≤ 0 °C)',
+  { group: 'cereales', kind: 'day', cls: 'warn', from: [4, 1], to: [5, 31], gdd: [1000, 1500], label: 'Gel tardif en montaison (Tmin ≤ 0 °C)',
     test: d => has(d.tmin) && d.tmin <= 0, show: d => `${d.tmin.toFixed(1)} °C` },
-  { group: 'cereales', kind: 'day', cls: 'warn', from: [4, 15], to: [7, 15], label: 'Chaleur épiaison-floraison / échaudage (Tmax > 25 °C)',
+  { group: 'cereales', kind: 'day', cls: 'warn', from: [4, 15], to: [7, 15], gdd: [1450, 2100], label: 'Chaleur épiaison-floraison / échaudage (Tmax > 25 °C)',
     test: d => has(d.tmax) && d.tmax > 25, show: d => `${d.tmax.toFixed(0)} °C` },
   { group: 'cereales', kind: 'info', from: [11, 1], to: [11, 30], label: 'Excès d\'eau après semis : pluie cumulée (le guide ne fixe pas de seuil)',
     info: days => `${sum(days.map(d => d.precip)).toFixed(1)} mm sur ${days.length} j` },
@@ -737,11 +738,11 @@ const CROP_RULES = [
   { group: 'cereales', kind: 'info', from: [7, 1], to: [7, 31], label: 'Récolte : jours consécutifs sans pluie (&lt; 1 mm)',
     info: days => dryRunText(days) },
   // Maïs
-  { group: 'mais', kind: 'day', cls: 'ko', from: [4, 1], to: [4, 30], label: 'Pluie intense au semis (> 25 mm)',
+  { group: 'mais', kind: 'day', cls: 'ko', from: [4, 1], to: [4, 30], gdd: [0, 150], label: 'Pluie intense au semis (> 25 mm)',
     test: d => has(d.precip) && d.precip > 25, show: d => `${d.precip.toFixed(0)} mm` },
-  { group: 'mais', kind: 'day', cls: 'warn', from: [4, 1], to: [6, 30], label: 'Températures très basses, levée freinée (Tmax &lt; 10 °C)',
+  { group: 'mais', kind: 'day', cls: 'warn', from: [4, 1], to: [6, 30], gdd: [0, 300], label: 'Températures très basses, levée freinée (Tmax &lt; 10 °C)',
     test: d => has(d.tmax) && d.tmax < 10, show: d => `${d.tmax.toFixed(0)} °C` },
-  { group: 'mais', kind: 'day', cls: 'ko', from: [6, 1], to: [9, 30], label: 'Stress thermique, risque d\'échaudage (Tmax > 32 °C)',
+  { group: 'mais', kind: 'day', cls: 'ko', from: [6, 1], to: [9, 30], gdd: [700, 1100], label: 'Stress thermique, risque d\'échaudage (Tmax > 32 °C)',
     test: d => has(d.tmax) && d.tmax > 32, show: d => `${d.tmax.toFixed(0)} °C` },
   { group: 'mais', kind: 'info', from: [5, 1], to: [8, 31], label: 'Déficit hydrique mai-août : bilan pluie − ETP',
     info: days => balanceText(days) },
@@ -781,6 +782,108 @@ function dryRunText(days) {
   return `${n} jour${n > 1 ? 's' : ''} depuis aujourd'hui (sur ${days.length} j de prévision)`;
 }
 
+/* ---------- Date de semis et stade estimé (degrés-jours) ----------
+   Pour les céréales et le maïs, une date de semis par culture remplace les périodes fixes du calendrier par une fenêtre
+   exprimée en cumul de températures depuis le semis (°C.j). Céréales : base 0 °C. Maïs : méthode 6-30 °C (Arvalis / Météo-France).
+   ATTENTION : les cumuls par stade ci-dessous (STAGES et champs gdd) sont des REPÈRES PROVISOIRES, estimés pour un semis d'octobre
+   (céréales) ou de printemps (maïs) à Genneteil ; la variété, le sol et l'année les font varier. À caler avec l'agriculteur.
+   Sans date de semis, ou si les températures passées sont indisponibles, les périodes du calendrier s'appliquent. */
+const SOWING_KEY = 'meteo.sowing';
+const GDD_GROUPS = new Set(['cereales', 'mais']);
+const STAGES = {
+  cereales: [[0, 'semé'], [150, 'levée'], [400, 'tallage'], [750, 'épi 1 cm (début montaison)'], [1000, 'montaison'], [1500, 'épiaison'], [1650, 'floraison'], [1800, 'remplissage du grain'], [2300, 'maturité']],
+  mais: [[0, 'semé'], [110, 'levée'], [450, 'croissance végétative'], [850, 'floraison'], [1000, 'remplissage du grain'], [1470, 'maturité ensilage (variété précoce)'], [1900, 'maturité du grain']]
+};
+const stageOf = (group, g) => STAGES[group].filter(s => g >= s[0]).pop()[1];
+function getSowing() {
+  try { const v = JSON.parse(storage.get(SOWING_KEY) || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+}
+function setSowing(id, date) {
+  const s = getSowing();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date || '')) s[id] = date; else delete s[id];
+  storage.set(SOWING_KEY, JSON.stringify(s));
+}
+const nextDay = key => { const d = new Date(`${key}T12:00:00`); d.setDate(d.getDate() + 1); return localDate(d); };
+function dailyGdd(group, t) {
+  if (!t || !has(t.tmin) || !has(t.tmax)) return 0;
+  if (group === 'mais') {
+    const c = x => Math.min(Math.max(x, 6), 30);
+    return Math.max(0, (c(t.tmax) + c(t.tmin)) / 2 - 6);
+  }
+  return Math.max(0, (t.tmin + t.tmax) / 2);
+}
+const gddCache = new Map();
+// cumul de degrés-jours depuis le semis jusqu'à la fin du jour `key` (0 avant le semis) ; null si les températures manquent
+function gddAt(cropId, group, key) {
+  const sow = getSowing()[cropId];
+  if (!sow || !state.tser || !GDD_GROUPS.has(group)) return null;
+  if (key < sow) return 0;
+  const ck = `${group}|${sow}`;
+  let cum = gddCache.get(ck);
+  if (!cum || cum.ser !== state.tser) {
+    cum = { ser: state.tser, map: new Map() };
+    let total = 0, k = sow;
+    while (state.tser.has(k)) {
+      total += dailyGdd(group, state.tser.get(k));
+      cum.map.set(k, total);
+      k = nextDay(k);
+    }
+    gddCache.set(ck, cum);
+  }
+  return cum.map.has(key) ? cum.map.get(key) : null;
+}
+// la règle (ou maladie) r est-elle dans sa période de risque ce jour-là pour cette culture ?
+function ruleActiveOn(key, r, cropId, group) {
+  if (r.gdd && getSowing()[cropId]) {
+    const g = gddAt(cropId, group, key);
+    if (g != null) return g >= r.gdd[0] && g <= r.gdd[1];
+  }
+  return inWindow(key, r);
+}
+
+// Températures depuis le plus ancien semis (archive ERA5 puis prévisions « passées » récentes) pour calculer les degrés-jours
+async function loadTempSeries(loc) {
+  const dates = Object.entries(getSowing()).filter(([id]) => GDD_GROUPS.has(CROPS.find(c => c.id === id)?.group)).map(e => e[1]);
+  if (!loc || !dates.length) { state.tser = null; state.tserKey = null; state.tserError = null; renderCrops(); updateAgroBadge(); return; }
+  const start = dates.sort()[0];
+  const ck = `${loc.lat},${loc.lon},${start}`;
+  if (state.tserKey === ck && state.tser) { renderCrops(); updateAgroBadge(); return; }
+  state.tserKey = null;
+  try {
+    const ser = new Map();
+    const archEnd = new Date(); archEnd.setDate(archEnd.getDate() - 8);
+    const end = localDate(archEnd);
+    if (start <= end) {
+      const a = await getJson(`https://archive-api.open-meteo.com/v1/archive?latitude=${loc.lat}&longitude=${loc.lon}` +
+        `&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min&timezone=auto`);
+      a.daily.time.forEach((t, i) => { if (a.daily.temperature_2m_max[i] != null) ser.set(t, { tmax: a.daily.temperature_2m_max[i], tmin: a.daily.temperature_2m_min[i] }); });
+    }
+    const f = await getJson(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}` +
+      `&daily=temperature_2m_max,temperature_2m_min&past_days=10&forecast_days=7&timezone=auto`);
+    f.daily.time.forEach((t, i) => { if (f.daily.temperature_2m_max[i] != null && t >= start) ser.set(t, { tmax: f.daily.temperature_2m_max[i], tmin: f.daily.temperature_2m_min[i] }); });
+    if (!ser.size) throw new Error('aucune donnée');
+    state.tser = ser; state.tserKey = ck; state.tserError = null;
+  } catch (err) {
+    state.tser = null; state.tserError = err.message;
+  }
+  renderCrops();
+  updateAgroBadge();
+}
+
+function renderSowingInputs() {
+  const el = document.getElementById('crops-sowing');
+  const sow = getSowing();
+  const list = selectedCrops().filter(c => GDD_GROUPS.has(c.group));
+  if (!list.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="muted">Date de semis (facultatif) : les alertes suivent alors le stade estimé de la culture.</div>' +
+    '<div class="row" style="margin-top:4px">' + list.map(c =>
+      `<label class="muted" style="display:flex;align-items:center;gap:6px">${c.label} <input type="date" data-sow="${c.id}" value="${sow[c.id] || ''}" min="2020-01-01"></label>`).join('') + '</div>';
+  el.querySelectorAll('input[data-sow]').forEach(inp => inp.addEventListener('change', () => {
+    setSowing(inp.dataset.sow, inp.value);
+    loadTempSeries(state.loc);
+  }));
+}
+
 function selectedCrops() {
   try {
     const v = JSON.parse(storage.get(CROPS_KEY) || 'null');
@@ -798,8 +901,10 @@ function buildCropBoxes() {
   box.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', () => {
     const ids = [...box.querySelectorAll('input[type=checkbox]')].filter(x => x.checked).map(x => x.dataset.crop);
     storage.set(CROPS_KEY, JSON.stringify(ids));
-    renderCrops();
+    renderSowingInputs();
+    loadTempSeries(state.loc);
   }));
+  renderSowingInputs();
 }
 
 /* ---------- Risque de maladies fongiques (indicatif) ----------
@@ -813,19 +918,19 @@ const WET_RH = 90, WET_MM = 0.2, FUNGAL_MID = 6, FUNGAL_HIGH = 12;
 const CER = ['ble', 'triticale', 'seigle', 'orge', 'avoine'];
 const DISEASES = [
   // Céréales
-  { label: 'Rouille jaune', crops: ['ble', 'triticale', 'orge'], from: [2, 1], to: [6, 15], t: [8, 15], basis: 'bsv' },
-  { label: 'Rouille brune', crops: ['ble', 'triticale', 'seigle'], from: [4, 15], to: [7, 15], t: [15, 22], basis: 'bsv' },
-  { label: 'Septoriose', crops: ['ble', 'triticale'], from: [3, 15], to: [6, 30], t: [12, 22], basis: 'bsv' },
-  { label: 'Fusariose des épis', crops: CER, from: [5, 10], to: [6, 30], t: [15, 25], basis: 'bsv' },
-  { label: 'Oïdium', crops: ['ble', 'triticale', 'orge', 'avoine'], from: [4, 1], to: [6, 30], t: [10, 20], basis: 'bsv' },
-  { label: 'Rhynchosporiose', crops: ['orge', 'seigle'], from: [3, 1], to: [6, 15], t: [5, 18], basis: 'bsv' },
-  { label: 'Helminthosporiose de l\'orge', crops: ['orge'], from: [4, 1], to: [6, 30], t: [15, 25], basis: 'bsv' },
-  { label: 'Rouille naine', crops: ['orge'], from: [5, 1], to: [7, 15], t: [15, 25], basis: 'bsv' },
+  { label: 'Rouille jaune', gdd: [700, 1800], crops: ['ble', 'triticale', 'orge'], from: [2, 1], to: [6, 15], t: [8, 15], basis: 'bsv' },
+  { label: 'Rouille brune', gdd: [1100, 2200], crops: ['ble', 'triticale', 'seigle'], from: [4, 15], to: [7, 15], t: [15, 22], basis: 'bsv' },
+  { label: 'Septoriose', gdd: [900, 2000], crops: ['ble', 'triticale'], from: [3, 15], to: [6, 30], t: [12, 22], basis: 'bsv' },
+  { label: 'Fusariose des épis', gdd: [1450, 1750], crops: CER, from: [5, 10], to: [6, 30], t: [15, 25], basis: 'bsv' },
+  { label: 'Oïdium', gdd: [900, 1900], crops: ['ble', 'triticale', 'orge', 'avoine'], from: [4, 1], to: [6, 30], t: [10, 20], basis: 'bsv' },
+  { label: 'Rhynchosporiose', gdd: [700, 1700], crops: ['orge', 'seigle'], from: [3, 1], to: [6, 15], t: [5, 18], basis: 'bsv' },
+  { label: 'Helminthosporiose de l\'orge', gdd: [900, 1900], crops: ['orge'], from: [4, 1], to: [6, 30], t: [15, 25], basis: 'bsv' },
+  { label: 'Rouille naine', gdd: [1300, 2200], crops: ['orge'], from: [5, 1], to: [7, 15], t: [15, 25], basis: 'bsv' },
   { label: 'Ergot du seigle', crops: ['seigle'], from: [5, 10], to: [6, 15], t: [10, 20], basis: 'gen' },
   { label: 'Rouille couronnée', crops: ['avoine'], from: [6, 1], to: [7, 31], t: [15, 25], basis: 'gen' },
   // Maïs et sorgho
-  { label: 'Helminthosporiose (turcicum)', crops: ['mais', 'mais_tardif', 'sorgho'], from: [7, 1], to: [9, 15], t: [18, 27], basis: 'bsv' },
-  { label: 'Fusariose de l\'épi (mycotoxines)', crops: ['mais', 'mais_tardif'], from: [8, 1], to: [10, 15], t: [20, 30], basis: 'bsv' },
+  { label: 'Helminthosporiose (turcicum)', gdd: [600, 1500], crops: ['mais', 'mais_tardif', 'sorgho'], from: [7, 1], to: [9, 15], t: [18, 27], basis: 'bsv' },
+  { label: 'Fusariose de l\'épi (mycotoxines)', gdd: [850, 1500], crops: ['mais', 'mais_tardif'], from: [8, 1], to: [10, 15], t: [20, 30], basis: 'bsv' },
   { label: 'Anthracnose', crops: ['sorgho'], from: [7, 1], to: [9, 15], t: [24, 30], basis: 'gen' },
   // Tournesol
   { label: 'Mildiou', crops: ['tournesol'], from: [4, 15], to: [6, 15], t: [10, 18], basis: 'gen' },
@@ -874,14 +979,26 @@ function renderFungal() {
   const lines = [];
   let active = 0;
   for (const d of mine) {
-    const keys = nextDayKeys().filter(k => inWindow(k, d));
-    if (!keys.length) continue;
-    active++;
-    const hits = keys.map(k => ({ k, h: fungalHours(k, d.t) })).filter(x => x.h != null && x.h >= FUNGAL_MID);
-    if (!hits.length) continue;
-    const high = hits.some(x => x.h >= FUNGAL_HIGH);
-    lines.push(`<div><span class="${high ? 'ko' : 'warn'}">🍄 ${d.label}</span> <span class="muted">(${d.mine.map(label).join(', ')})</span> : ` +
-      hits.map(x => `${dayLabel(x.k)} (${x.h.toFixed(0)} h, ${x.h >= FUNGAL_HIGH ? 'élevé' : 'moyen'})`).join(', ') + '</div>');
+    const bySig = new Map();
+    let any = false;
+    for (const c of d.mine) {
+      const group = CROPS.find(x => x.id === c).group;
+      const keys = nextDayKeys().filter(k => ruleActiveOn(k, d, c, group));
+      if (!keys.length) continue;
+      any = true;
+      const hits = keys.map(k => ({ k, h: fungalHours(k, d.t) })).filter(x => x.h != null && x.h >= FUNGAL_MID);
+      if (!hits.length) continue;
+      const sig = hits.map(x => x.k).join();
+      const e = bySig.get(sig) ?? { hits, crops: [] };
+      e.crops.push(c);
+      bySig.set(sig, e);
+    }
+    if (any) active++;
+    for (const { hits, crops: cs } of bySig.values()) {
+      const high = hits.some(x => x.h >= FUNGAL_HIGH);
+      lines.push(`<div><span class="${high ? 'ko' : 'warn'}">🍄 ${d.label}</span> <span class="muted">(${cs.map(label).join(', ')})</span> : ` +
+        hits.map(x => `${dayLabel(x.k)} (${x.h.toFixed(0)} h, ${x.h >= FUNGAL_HIGH ? 'élevé' : 'moyen'})`).join(', ') + '</div>');
+    }
   }
   state.fungalAlerts = lines.length;
   el.innerHTML = lines.length ? lines.join('')
@@ -905,7 +1022,8 @@ function renderCrops() {
     return `<div><strong>${names}</strong><ul style="margin:4px 0 8px;padding-left:20px">${items}</ul></div>`;
   }).join('') + (groups.length ? '<p>Source : guide Climadiag Agriculture (Météo-France / Solagro). Seuils à valider avec l\'agriculteur. ' +
     'Le guide ne détaille ni l\'orge, ni l\'avoine, ni le triticale, ni le seigle : ils utilisent les règles « Céréales », comme le blé. ' +
-    'Maïs tardif : règles du maïs. Tournesol et sorgho : une seule règle dans le guide. Vesse : aucune règle dans le guide, règles du pois protéagineux par approximation.</p>' : '');
+    'Maïs tardif : règles du maïs. Tournesol et sorgho : une seule règle dans le guide. Vesse : aucune règle dans le guide, règles du pois protéagineux par approximation. ' +
+    'Avec une date de semis (céréales, maïs), la période de chaque règle devient une fenêtre de stade estimé par cumul de degrés-jours (repères provisoires, à caler avec l\'agriculteur).</p>' : '');
 
   if (!state.ok.length) { alertsEl.innerHTML = ''; return; }
   if (!crops.length) { alertsEl.innerHTML = '<span class="muted">Aucune culture sélectionnée.</span>'; return; }
@@ -916,12 +1034,30 @@ function renderCrops() {
     if (vals.length) days.push({ key: k, ...averageValues(vals, dayIdx(k)) });
   }
 
-  alertsEl.innerHTML = groups.map(g => {
-    const names = crops.filter(c => c.group === g).map(c => c.label).join(', ');
+  const sowing = getSowing();
+  const buckets = [];
+  for (const c of crops) {
+    const sow = GDD_GROUPS.has(c.group) ? (sowing[c.id] || '') : '';
+    let b = buckets.find(x => x.group === c.group && x.sow === sow);
+    if (!b) buckets.push(b = { group: c.group, sow, crops: [] });
+    b.crops.push(c);
+  }
+  const todayKey = localDate(new Date());
+  alertsEl.innerHTML = buckets.map(b => {
+    const g = b.group;
+    const names = b.crops.map(c => c.label).join(', ');
     const lines = [];
     let activeDayRules = 0;
+    let stageLine = '';
+    if (b.sow) {
+      const gNow = gddAt(b.crops[0].id, g, todayKey);
+      const semis = fmtDay(b.sow);
+      stageLine = gNow != null
+        ? `<div class="muted">Semis du ${semis} : stade estimé aujourd'hui <strong>${stageOf(g, gNow)}</strong> (≈ ${gNow.toFixed(0)} °C.j depuis le semis). Repères provisoires ; périodes d'alerte calées sur ce stade.</div>`
+        : `<div class="muted">Semis du ${semis} : ${state.tserError ? 'températures passées indisponibles (' + state.tserError + ')' : 'calcul du stade en cours'} ; périodes du calendrier utilisées.</div>`;
+    }
     for (const r of CROP_RULES.filter(x => x.group === g)) {
-      const inside = days.filter(d => inWindow(d.key, r));
+      const inside = days.filter(d => ruleActiveOn(d.key, r, b.crops[0].id, g));
       if (!inside.length) continue;
       if (r.kind === 'info') {
         lines.push(`<div><span class="muted">ℹ️ ${r.label} :</span> ${r.info(inside)}</div>`);
@@ -934,7 +1070,7 @@ function renderCrops() {
     const body = lines.length ? lines.join('')
       : activeDayRules ? '<span class="ok">Aucune alerte pour cette culture.</span>'
       : '<span class="muted">Aucune période de surveillance en ce moment.</span>';
-    return `<div style="margin-bottom:8px"><strong>${names}</strong>${names === GROUP_LABEL[g] ? '' : ` <span class="muted">(${GROUP_LABEL[g]})</span>`}<br>${body}</div>`;
+    return `<div style="margin-bottom:8px"><strong>${names}</strong>${names === GROUP_LABEL[g] ? '' : ` <span class="muted">(${GROUP_LABEL[g]})</span>`}<br>${stageLine}${body}</div>`;
   }).join('');
   state.cropAlerts = (alertsEl.innerHTML.match(/⚠ /g) || []).length;
   updateAgroBadge();
@@ -1127,6 +1263,7 @@ async function refresh(loc) {
   updateAgroBadge();
   render();
   renderRainStations(loc);
+  loadTempSeries(loc); // degrés-jours depuis le semis (si une date de semis est saisie)
   loadPastRain(loc); // indépendant des sources de prévision ; gère ses propres erreurs
 }
 
