@@ -44,6 +44,25 @@ td.avg { font-weight: 700; color: var(--accent); }
 .warn { color: var(--warn); font-weight: 600; }
 .moon { font-size: 1.1rem; }
 .src-title { margin: 14px 0 6px; font-size: .98rem; color: var(--accent); }
+.sec { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; }
+.sec > summary { cursor: pointer; padding: 14px; font-weight: 600; font-size: 1.02rem; display: flex; align-items: center; gap: 10px; list-style: none; }
+.sec > summary::-webkit-details-marker { display: none; }
+.sec > summary::after { content: '▾'; color: var(--muted); }
+.sec[open] > summary::after { content: '▴'; }
+.sec > summary .badge { margin-left: auto; }
+.sec-body { padding: 0 14px 14px; }
+.badge { font-size: .85rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.badge.warn { color: var(--warn); border-color: var(--warn); }
+.badge.ko { color: var(--bad); border-color: var(--bad); }
+.badge.ok { color: var(--accent); border-color: var(--accent); }
+summary.link { cursor: pointer; }
+.arow { padding: 8px 0; border-top: 1px solid var(--line); }
+.arow:first-child { border-top: 0; padding-top: 0; }
+.chip { display: inline-block; padding: 1px 9px; margin: 3px 5px 0 0; border-radius: 999px; border: 1px solid var(--line); font-size: .85rem; white-space: nowrap; }
+.chip.warn { border-color: var(--warn); }
+.chip.ko { border-color: var(--bad); }
+.chip.warn, .chip.ko { color: var(--text); font-weight: 400; }
+.chip b { font-weight: 600; }
 </style>
 </head>
 <body>
@@ -116,40 +135,55 @@ td.avg { font-weight: 700; color: var(--accent); }
   </section>
 
   <section id="tab-agro" hidden>
-  <div class="card">
-    <h2>Alertes agronomiques <small class="muted">(version test)</small></h2>
-    <div id="agro-alerts" class="status"></div>
+  <p class="muted" id="agro-allclear" style="margin:0 0 10px"></p>
 
-    <h3 class="src-title">Surveillance par culture</h3>
-    <details>
-      <summary class="muted" style="cursor:pointer">Mes cultures : <span id="crops-summary"></span></summary>
-      <div class="row" id="crops-boxes" style="margin-top:8px"></div>
-      <div id="crops-sowing" style="margin-top:8px"></div>
-    </details>
-    <div id="crops-alerts" class="status" style="margin-top:6px"></div>
-    <details style="margin-top:6px">
-      <summary class="muted" style="cursor:pointer">Périodes surveillées et seuils</summary>
-      <div id="crops-rules" class="muted" style="margin-top:6px"></div>
-    </details>
-    <h3 class="src-title">Risque de maladies fongiques <small class="muted">(indicatif)</small></h3>
-    <div id="fungal-alerts" class="status"></div>
-    <details style="margin-top:6px">
-      <summary class="muted" style="cursor:pointer">Maladies surveillées, méthode et limites</summary>
-      <div id="fungal-rules" class="muted" style="margin-top:6px"></div>
-    </details>
-    <details style="margin-top:8px">
-      <summary class="muted" style="cursor:pointer">Pluie, évapotranspiration (ETP) et bilan hydrique par jour</summary>
-      <div class="table-wrap" id="agro-table" style="margin-top:8px"></div>
+  <details class="sec" id="sec-weather">
+    <summary><span>🌦️ Météo à risque</span><span class="badge" id="badge-weather"></span></summary>
+    <div class="sec-body"><div id="agro-alerts" class="status"></div></div>
+  </details>
+
+  <details class="sec" id="sec-crops">
+    <summary><span>🌾 Mes cultures</span><span class="badge" id="badge-crops"></span></summary>
+    <div class="sec-body">
+      <details>
+        <summary class="muted link">Cultures suivies : <span id="crops-summary"></span> (modifier)</summary>
+        <div class="row" id="crops-boxes" style="margin-top:8px"></div>
+        <div id="crops-sowing" style="margin-top:8px"></div>
+      </details>
+      <div id="crops-alerts" class="status" style="margin-top:8px"></div>
+      <details style="margin-top:6px">
+        <summary class="muted link">Périodes surveillées et seuils</summary>
+        <div id="crops-rules" class="muted" style="margin-top:6px"></div>
+      </details>
+    </div>
+  </details>
+
+  <details class="sec" id="sec-fungal">
+    <summary><span>🍄 Maladies fongiques <small class="muted">(indicatif)</small></span><span class="badge" id="badge-fungal"></span></summary>
+    <div class="sec-body">
+      <div id="fungal-alerts" class="status"></div>
+      <details style="margin-top:6px">
+        <summary class="muted link">Maladies surveillées, méthode et limites</summary>
+        <div id="fungal-rules" class="muted" style="margin-top:6px"></div>
+      </details>
+    </div>
+  </details>
+
+  <details class="sec" id="sec-water">
+    <summary><span>💧 Bilan hydrique (pluie − ETP)</span><span class="badge" id="badge-water"></span></summary>
+    <div class="sec-body">
+      <div class="table-wrap" id="agro-table"></div>
       <p class="muted" id="agro-hint"></p>
-    </details>
-    <details style="margin-top:8px">
-      <summary class="muted" style="cursor:pointer">Détail par source (valeurs de chaque source)</summary>
-      <div id="agro-sources" style="margin-top:8px"></div>
-    </details>
-  </div>
+      <details style="margin-top:6px">
+        <summary class="muted link">Détail par source (valeurs de chaque source)</summary>
+        <div id="agro-sources" style="margin-top:8px"></div>
+      </details>
+    </div>
+  </details>
 
-  <div class="card">
-    <h2>Pluie des 30 derniers jours <small class="muted">(version test)</small></h2>
+  <details class="sec" id="sec-rain">
+    <summary><span>🌧️ Pluie des 30 derniers jours <small class="muted">(version test)</small></span><span class="badge" id="badge-rain"></span></summary>
+    <div class="sec-body">
 
     <h3 class="src-title">Pluviomètres Météo-France (stations proches)</h3>
     <div id="rain-stations" class="status"></div>
@@ -178,7 +212,8 @@ td.avg { font-weight: 700; color: var(--accent); }
       <div class="table-wrap" id="past-rain-days" style="margin-top:8px"></div>
       <p class="muted" id="past-rain-hint"></p>
     </details>
-  </div>
+    </div>
+  </details>
 
   </section>
 </main>
@@ -604,6 +639,11 @@ const THRESHOLDS = {
 
 const has = x => x != null && !Number.isNaN(x);
 
+// Ligne d'alerte compacte : titre, puis une pastille par jour concerné
+const alertRow = (cls, title, sub, chips) =>
+  `<div class="arow"><span class="${cls}">${title}</span>${sub ? ` <span class="muted">${sub}</span>` : ''}<div>` +
+  chips.map(c => `<span class="chip ${cls}">${c}</span>`).join('') + '</div></div>';
+
 const ALERT_GROUPS = [
   { icon: '🔥', label: `Très chaud (≥ ${THRESHOLDS.veryHot} °C)`, cls: 'ko',
     test: d => has(d.tmax) && d.tmax >= THRESHOLDS.veryHot, show: d => `${d.tmax.toFixed(0)} °C` },
@@ -640,7 +680,7 @@ function renderAgro() {
   const lines = ALERT_GROUPS.map(g => {
     const hit = days.filter(g.test);
     return hit.length
-      ? `<div><span class="${g.cls}">${g.icon} ${g.label} :</span> ${hit.map(d => `${dayLabel(d.key)} (${g.show(d)})`).join(', ')}</div>`
+      ? alertRow(g.cls, `${g.icon} ${g.label}`, '', hit.map(d => `${dayLabel(d.key)} <b>${g.show(d)}</b>`))
       : '';
   }).filter(Boolean);
   state.agroLines = lines.length;
@@ -662,6 +702,9 @@ function renderAgro() {
       `<td class="${total < 0 ? 'warn' : 'ok'}">${total > 0 ? '+' : ''}${total.toFixed(1)} mm</td></tr>`);
   }
   tableEl.innerHTML = tableHtml(['Jour', 'Pluie', 'ETP', 'Bilan (pluie − ETP)'], rows);
+  const wb = document.getElementById('badge-water');
+  if (nb) { const t = cumP - cumE; wb.textContent = `${t > 0 ? '+' : ''}${t.toFixed(0)} mm / ${nb} j`; wb.className = 'badge ' + (t < 0 ? 'warn' : 'ok'); }
+  else { wb.textContent = ''; wb.className = 'badge'; }
 
   // Détail par source : mêmes seuils que les alertes, appliqués à chaque source séparément
   const cell = (v, unit, digits, level) =>
@@ -689,9 +732,23 @@ function renderAgro() {
 
 /* ---------- Onglets : Prévisions météo / Alertes agronomiques ---------- */
 const TAB_KEY = 'meteo.tab';
+function setBadge(id, n) {
+  const el = document.getElementById(id);
+  el.textContent = n ? `${n} alerte${n > 1 ? 's' : ''}` : 'RAS';
+  el.className = 'badge ' + (n ? 'warn' : 'ok');
+}
 function updateAgroBadge() {
-  const n = (state.agroLines || 0) + (state.cropAlerts || 0) + (state.fungalAlerts || 0);
+  const parts = { weather: state.agroLines || 0, crops: state.cropAlerts || 0, fungal: state.fungalAlerts || 0 };
+  const n = parts.weather + parts.crops + parts.fungal;
   document.getElementById('tab-agro-btn').textContent = n ? `Alertes agronomiques (${n})` : 'Alertes agronomiques';
+  if (!state.ok || !state.ok.length) return;
+  for (const [k, v] of Object.entries(parts)) {
+    setBadge('badge-' + k, v);
+    const sec = document.getElementById('sec-' + k);
+    // Ouverture automatique une seule fois (ensuite, le choix de l'utilisateur est respecté)
+    if (v && !sec.dataset.seen) { sec.open = true; sec.dataset.seen = '1'; }
+  }
+  document.getElementById('agro-allclear').textContent = n ? '' : '✓ Aucune alerte sur les 7 prochains jours. Touchez une section pour voir le détail.';
 }
 function showTab(name) {
   const tab = name === 'agro' ? 'agro' : 'forecast';
@@ -996,8 +1053,8 @@ function renderFungal() {
     if (any) active++;
     for (const { hits, crops: cs } of bySig.values()) {
       const high = hits.some(x => x.h >= FUNGAL_HIGH);
-      lines.push(`<div><span class="${high ? 'ko' : 'warn'}">🍄 ${d.label}</span> <span class="muted">(${cs.map(label).join(', ')})</span> : ` +
-        hits.map(x => `${dayLabel(x.k)} (${x.h.toFixed(0)} h, ${x.h >= FUNGAL_HIGH ? 'élevé' : 'moyen'})`).join(', ') + '</div>');
+      lines.push(alertRow(high ? 'ko' : 'warn', d.label, `(${cs.map(label).join(', ')})`,
+        hits.map(x => `${dayLabel(x.k)} <b>${x.h.toFixed(0)} h</b> ${x.h >= FUNGAL_HIGH ? 'élevé' : 'moyen'}`)));
     }
   }
   state.fungalAlerts = lines.length;
@@ -1043,36 +1100,40 @@ function renderCrops() {
     b.crops.push(c);
   }
   const todayKey = localDate(new Date());
+  let nAlerts = 0;
   alertsEl.innerHTML = buckets.map(b => {
     const g = b.group;
     const names = b.crops.map(c => c.label).join(', ');
     const lines = [];
+    const infos = [];
     let activeDayRules = 0;
     let stageLine = '';
     if (b.sow) {
       const gNow = gddAt(b.crops[0].id, g, todayKey);
-      const semis = fmtDay(b.sow);
       stageLine = gNow != null
-        ? `<div class="muted">Semis du ${semis} : stade estimé aujourd'hui <strong>${stageOf(g, gNow)}</strong> (≈ ${gNow.toFixed(0)} °C.j depuis le semis). Repères provisoires ; périodes d'alerte calées sur ce stade.</div>`
-        : `<div class="muted">Semis du ${semis} : ${state.tserError ? 'températures passées indisponibles (' + state.tserError + ')' : 'calcul du stade en cours'} ; périodes du calendrier utilisées.</div>`;
+        ? `<div class="muted">Semis du ${fmtDay(b.sow)} · stade estimé : <strong>${stageOf(g, gNow)}</strong> (≈ ${gNow.toFixed(0)} °C.j, repère provisoire)</div>`
+        : `<div class="muted">Semis du ${fmtDay(b.sow)} : ${state.tserError ? 'températures passées indisponibles' : 'calcul du stade en cours'} ; calendrier utilisé.</div>`;
     }
     for (const r of CROP_RULES.filter(x => x.group === g)) {
       const inside = days.filter(d => ruleActiveOn(d.key, r, b.crops[0].id, g));
       if (!inside.length) continue;
       if (r.kind === 'info') {
-        lines.push(`<div><span class="muted">ℹ️ ${r.label} :</span> ${r.info(inside)}</div>`);
+        infos.push(`<li>${r.label} : ${r.info(inside)}</li>`);
       } else {
         activeDayRules++;
         const hit = inside.filter(r.test);
-        if (hit.length) lines.push(`<div><span class="${r.cls}">⚠ ${r.label} :</span> ${hit.map(d => `${dayLabel(d.key)} (${r.show(d)})`).join(', ')}</div>`);
+        if (hit.length) { nAlerts++; lines.push(alertRow(r.cls, `⚠ ${r.label}`, '', hit.map(d => `${dayLabel(d.key)} <b>${r.show(d)}</b>`))); }
       }
     }
     const body = lines.length ? lines.join('')
-      : activeDayRules ? '<span class="ok">Aucune alerte pour cette culture.</span>'
-      : '<span class="muted">Aucune période de surveillance en ce moment.</span>';
-    return `<div style="margin-bottom:8px"><strong>${names}</strong>${names === GROUP_LABEL[g] ? '' : ` <span class="muted">(${GROUP_LABEL[g]})</span>`}<br>${stageLine}${body}</div>`;
+      : activeDayRules ? '<div class="ok">✓ Aucune alerte</div>'
+      : '<div class="muted">Aucune période de surveillance en ce moment.</div>';
+    const infoBlock = infos.length
+      ? `<details style="margin-top:4px"><summary class="muted link">Informations (${infos.length})</summary><ul class="muted" style="margin:4px 0;padding-left:20px">${infos.join('')}</ul></details>` : '';
+    const title = `<div><strong>${names}</strong>${names === GROUP_LABEL[g] ? '' : ` <span class="muted">(${GROUP_LABEL[g]})</span>`}</div>`;
+    return `<div class="arow">${title}${stageLine}${body}${infoBlock}</div>`;
   }).join('');
-  state.cropAlerts = (alertsEl.innerHTML.match(/⚠ /g) || []).length;
+  state.cropAlerts = nAlerts;
   updateAgroBadge();
 }
 
@@ -1119,7 +1180,8 @@ function renderRainStations(loc) {
     el.innerHTML = '<span class="ko">Données des stations trop anciennes ou incomplètes pour ce mois.</span>';
   } else {
     const avg = usable.reduce((a, r) => a + r.total, 0) / usable.length;
-    const lo = Math.min(...usable.map(r => r.total)), hi = Math.max(...usable.map(r => r.total));
+    const rb = document.getElementById('badge-rain'); rb.textContent = `${avg.toFixed(0)} mm`; rb.className = 'badge';
+    const lo =Math.min(...usable.map(r => r.total)), hi = Math.max(...usable.map(r => r.total));
     el.innerHTML = `<div><strong>${avg.toFixed(0)} mm</strong> en moyenne sur les 30 derniers jours ` +
       `<span class="muted">(${usable.length} station${usable.length > 1 ? 's' : ''} : de ${lo.toFixed(0)} à ${hi.toFixed(0)} mm)</span></div>` +
       `<div class="muted">Relevés officiels Météo-France, jusqu'au ${fmtDay(lastKey).replace(/\.$/, '')}. Stations à ${usable[0].s.d.toFixed(0)} à ${usable[usable.length - 1].s.d.toFixed(0)} km : la pluie peut différer de plusieurs mm sur vos parcelles.</div>` +
