@@ -933,8 +933,8 @@ function renderSowingInputs() {
   const list = selectedCrops().filter(c => GDD_GROUPS.has(c.group));
   if (!list.length) { el.innerHTML = ''; return; }
   el.innerHTML = '<div class="muted">Date de semis (facultatif) : les alertes suivent alors le stade estimé de la culture.</div>' +
-    '<div class="row" style="margin-top:4px">' + list.map(c =>
-      `<label class="muted" style="display:flex;align-items:center;gap:6px">${c.label} <input type="date" data-sow="${c.id}" value="${sow[c.id] || ''}" min="2020-01-01"></label>`).join('') + '</div>';
+    '<div style="margin-top:4px;display:grid;grid-template-columns:max-content max-content;gap:6px 10px;align-items:center;justify-content:start">' + list.map(c =>
+      `<label class="muted" for="sow-${c.id}">${c.label}</label><input type="date" id="sow-${c.id}" data-sow="${c.id}" value="${sow[c.id] || ''}" min="2020-01-01">`).join('') + '</div>';
   el.querySelectorAll('input[data-sow]').forEach(inp => inp.addEventListener('change', () => {
     setSowing(inp.dataset.sow, inp.value);
     loadTempSeries(state.loc);
